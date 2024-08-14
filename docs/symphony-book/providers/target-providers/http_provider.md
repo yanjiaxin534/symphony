@@ -19,4 +19,4 @@ The HTTP provider can’t reconstruct the current state, so it always reports it
 | `Properties[http.body]` | HTTP body<sup>1</sup> |
 | `Properties[http.method]` | HTTP method, default is `POST` |
 
-[example yaml link](../../../samples/k8s/http/)
+* [Example Yaml](../../../samples/k8s/http/target.yaml)

@@ -10,10 +10,10 @@ This provider manages a Helm chart embedded in a component. It supports packaged
 
 | ComponentSpec properties| Helm provider|
 |--------|--------|
-| `helm.chart.name` | chart name |
-| `helm.repo` | chart repo or URL<sup>1</sup> |
-| `helm.chart.version` | chart version<sup>2</sup>|
-| `helm.values.*` | chart values<sup>3</sup>|
+| chart[name] | chart name |
+| chart[repo] | chart repo or URL<sup>1</sup> |
+| chart[version] | chart version<sup>2</sup>|
+| `values.*` | chart values<sup>3</sup>|
 
 1: The repo URL can be either an OCI repo address (without the `oci://` prefix), or a URL pointing to a packaged Helm chart (with `.tgz` file extension)
 
