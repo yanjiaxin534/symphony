@@ -744,11 +744,19 @@ func configureUninstallClient(ctx context.Context, componentProps *HelmChartProp
 func convertTimeout(ctx context.Context, timeout string) (time.Duration, error) {
 	duration, err := time.ParseDuration(timeout)
 	if err != nil {
+<<<<<<< HEAD
 		sLog.ErrorfCtx(ctx, "  P (Helm Target): failed to parse timeout duration: %v", err)
 		return 0, err
 	}
 	if duration < 0 {
 		sLog.ErrorfCtx(ctx, "  P (Helm Target): Timeout is negative: %s", timeout)
+=======
+		sLog.Errorf("  P (Helm Target): failed to parse timeout duration: %v", err)
+		return 0, err
+	}
+	if duration < 0 {
+		sLog.Errorf("  P (Helm Target): Timeout is negative: %s", timeout)
+>>>>>>> 6ac4315a (add param timeout for helm target provider)
 		return 0, errors.New("Timeout can not be negative.")
 	}
 	return duration, nil
