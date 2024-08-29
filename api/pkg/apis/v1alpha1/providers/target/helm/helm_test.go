@@ -664,11 +664,7 @@ func TestHelmTargetProviderWithNegativeTimeout(t *testing.T) {
 	_, err = provider.Apply(context.Background(), deployment, step, false)
 	fmt.Printf("error timeout %v", err.Error())
 	if !strings.Contains(err.Error(), "Timeout can not be negative") {
-<<<<<<< HEAD
 		t.Errorf("expected error to contain 'Timeout can not be negative', but got %s", err.Error())
-=======
-		t.Errorf("expected error to contain 'sample', but got %s", err.Error())
->>>>>>> d11914a0 (add ut for timeout param)
 	}
 	assert.NotNil(t, err)
 }
