@@ -690,7 +690,7 @@ func TestHelmTargetProviderWithPositiveTimeout(t *testing.T) {
 				"repo":    "https://brigadecore.github.io/charts",
 				"name":    "brigade",
 				"wait":    true,
-				"timeout": "20s",
+				"timeout": "0.01s",
 			},
 		},
 	}
@@ -713,7 +713,10 @@ func TestHelmTargetProviderWithPositiveTimeout(t *testing.T) {
 		},
 	}
 	_, err = provider.Apply(context.Background(), deployment, step, false)
-	assert.Nil(t, err)
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("expected error to contain 'context deadline exceeded', but got %s", err.Error())
+	}
+	assert.NotNil(t, err)
 }
 
 func TestHelmTargetProviderWithInvalidTimeout(t *testing.T) {
