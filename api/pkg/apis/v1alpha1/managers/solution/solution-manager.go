@@ -316,7 +316,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 		SuccessCount:        0,
 		AllAssignedDeployed: false,
 	}
-
+	fmt.Printf("dddddddddsummary target result %+v", summary.TargetResults)
 	deploymentType := DeploymentType_Update
 	if remove {
 		deploymentType = DeploymentType_Delete
@@ -481,8 +481,9 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 		// 		}
 		// 	}
 		// }
-
+		fmt.Printf("summary is %+v", summary)
 		for i := 0; i < retryCount; i++ {
+			log.InfoCtx(ctx, "apply dep %+v, step %+v", dep, step)
 			componentResults, stepError = (provider.(tgt.ITargetProvider)).Apply(ctx, dep, step, deployment.IsDryRun)
 			if stepError == nil {
 				targetResult[step.Target] = 1
