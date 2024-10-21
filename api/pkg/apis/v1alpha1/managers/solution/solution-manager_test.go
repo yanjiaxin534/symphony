@@ -810,6 +810,45 @@ func TestMockApplydeleteSomeRoles(t *testing.T) {
 	fmt.Printf("summary target %+v", summary.TargetResults["T1"])
 	assert.Equal(t, 3, len(summary.TargetResults["T1"].ComponentResults))
 
+	deployment3 := model.DeploymentSpec{
+		Instance: model.InstanceState{
+			Spec: &model.InstanceSpec{},
+		},
+		Solution: model.SolutionState{
+			Spec: &model.SolutionSpec{
+				Components: []model.ComponentSpec{
+					{
+						Name: "d",
+						Type: "mock",
+					},
+				},
+			},
+		},
+		Assignments: map[string]string{
+			"T1": "{d}",
+		},
+		Targets: map[string]model.TargetState{
+			"T1": {
+				Spec: &model.TargetSpec{
+					Topologies: []model.TopologySpec{
+						{
+							Bindings: []model.BindingSpec{
+								{
+									Role:     "mock",
+									Provider: "providers.target.mock",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	summary, err = manager.Reconcile(context.Background(), deployment3, false, "default", "")
+	assert.Nil(t, err)
+	assert.Equal(t, 1, summary.SuccessCount)
+	fmt.Printf("summary target %+v", summary.TargetResults["T1"])
+	assert.Equal(t, 2, len(summary.TargetResults["T1"].ComponentResults))
 }
 
 func TestMockApplyWithUpdateAndRemove(t *testing.T) {
