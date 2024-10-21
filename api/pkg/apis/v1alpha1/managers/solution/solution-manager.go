@@ -294,7 +294,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 
 	stopCh := make(chan struct{})
 	defer close(stopCh)
-	go s.sendHeartbeat(ctx, deployment.Instance.ObjectMeta.Name, namespace, remove, stopCh)
+	// go s.sendHeartbeat(ctx, deployment.Instance.ObjectMeta.Name, namespace, remove, stopCh)
 
 	ctx, span := observability.StartSpan("Solution Manager", ctx, &map[string]string{
 		"method": "Reconcile",

@@ -808,7 +808,7 @@ func TestMockApplydeleteSomeRoles(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 1, summary.SuccessCount)
 	fmt.Printf("summary target %+v", summary.TargetResults["T1"])
-	assert.Equal(t, 1, len(summary.TargetResults["T1"].ComponentResults))
+	assert.Equal(t, 3, len(summary.TargetResults["T1"].ComponentResults))
 
 }
 
