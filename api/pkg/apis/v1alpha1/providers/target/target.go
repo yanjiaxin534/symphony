@@ -21,4 +21,7 @@ type ITargetProvider interface {
 	Get(ctx context.Context, deployment model.DeploymentSpec, references []model.ComponentStep) ([]model.ComponentSpec, error)
 	// apply components to a target
 	Apply(ctx context.Context, deployment model.DeploymentSpec, step model.DeploymentStep, isDryRun bool) (map[string]model.ComponentResultSpec, error)
+	ProcessComponents(components []providers.Component)
+	InstallComponent(component providers.Component)
+	UninstallComponent(component providers.Component)
 }

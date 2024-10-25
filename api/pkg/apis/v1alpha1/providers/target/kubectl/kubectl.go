@@ -75,7 +75,6 @@ type (
 		Context    string `json:"context,omitempty"`
 		InCluster  bool   `json:"inCluster"`
 	}
-
 	// KubectlTargetProvider is the kubectl target provider
 	KubectlTargetProvider struct {
 		Config          KubectlTargetProviderConfig
@@ -86,6 +85,7 @@ type (
 		Mapper          *restmapper.DeferredDiscoveryRESTMapper
 		RESTConfig      *rest.Config
 		MetaPopulator   metahelper.MetaPopulator
+		providers.BaseTargetProvider
 	}
 
 	// StatusProbe is the expected resource status property
@@ -99,6 +99,18 @@ type (
 		InitialWait      string   `json:"initialWait,omitempty"`
 	}
 )
+
+// 实现 InstallComponent 方法
+func (h *KubectlTargetProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *KubectlTargetProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
+}
 
 // KubectlTargetProviderConfigFromMap converts a map to a KubectlTargetProviderConfig
 func KubectlTargetProviderConfigFromMap(properties map[string]string) (KubectlTargetProviderConfig, error) {

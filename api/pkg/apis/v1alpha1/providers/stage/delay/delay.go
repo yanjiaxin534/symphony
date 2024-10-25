@@ -42,6 +42,19 @@ type DelayStageProviderConfig struct {
 type DelayStageProvider struct {
 	Config  DelayStageProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *DelayStageProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *DelayStageProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 func (m *DelayStageProvider) Init(config providers.IProviderConfig) error {

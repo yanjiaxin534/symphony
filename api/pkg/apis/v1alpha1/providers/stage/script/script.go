@@ -53,6 +53,19 @@ type ScriptStageProviderConfig struct {
 type ScriptStageProvider struct {
 	Config  ScriptStageProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *ScriptStageProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *ScriptStageProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 func ScriptProviderConfigFromMap(properties map[string]string) (ScriptStageProviderConfig, error) {

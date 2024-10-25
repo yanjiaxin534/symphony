@@ -72,8 +72,21 @@ type (
 		DiscoveryClient *discovery.DiscoveryClient
 		Mapper          *restmapper.DeferredDiscoveryRESTMapper
 		RESTConfig      *rest.Config
+		providers.BaseTargetProvider
 	}
 )
+
+// 实现 InstallComponent 方法
+func (h *IngressTargetProvider) InstallComponent(component providers.Component) {
+	// IngressTargetProvider 特有的安装逻辑
+	// fmt.Printf("IngressTargetProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *IngressTargetProvider) UninstallComponent(component providers.Component) {
+	// IngressTargetProvider 特有的卸载逻辑
+	// fmt.Printf("IngressTargetProvider uninstalling component: %s\n", component.Name)
+}
 
 // IngressTargetProviderConfigFromMap converts a map to a IngressTargetProviderConfig
 func IngressTargetProviderConfigFromMap(properties map[string]string) (IngressTargetProviderConfig, error) {

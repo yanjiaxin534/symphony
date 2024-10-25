@@ -38,6 +38,19 @@ type ADUTargetProviderConfig struct {
 type ADUTargetProvider struct {
 	Config  ADUTargetProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *ADUTargetProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *ADUTargetProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 func ADUTargetProviderConfigFromMap(properties map[string]string) (ADUTargetProviderConfig, error) {

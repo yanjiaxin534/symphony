@@ -39,6 +39,19 @@ type DockerTargetProviderConfig struct {
 type DockerTargetProvider struct {
 	Config  DockerTargetProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *DockerTargetProvider) InstallComponent(component providers.Component) {
+	// DockerTargetProvider 特有的安装逻辑
+	// fmt.Printf("DockerTargetProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *DockerTargetProvider) UninstallComponent(component providers.Component) {
+	// DockerTargetProvider 特有的卸载逻辑
+	// fmt.Printf("DockerTargetProvider uninstalling component: %s\n", component.Name)
 }
 
 func DockerTargetProviderConfigFromMap(properties map[string]string) (DockerTargetProviderConfig, error) {

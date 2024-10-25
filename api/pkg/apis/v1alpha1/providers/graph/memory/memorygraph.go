@@ -9,6 +9,7 @@ package memorygraph
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/graph"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2"
@@ -25,8 +26,20 @@ type MemoryGraphProvider struct {
 	Config  MemoryGraphProviderConfig
 	Context *contexts.ManagerContext
 	Data    []v1alpha2.INode
+	providers.BaseTargetProvider
 }
 
+// 实现 InstallComponent 方法
+func (h *MemoryGraphProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *MemoryGraphProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
+}
 func (g *MemoryGraphProvider) Init(config providers.IProviderConfig) error {
 	mockConfig, err := toMemoryGraphProviderConfig(config)
 	if err != nil {

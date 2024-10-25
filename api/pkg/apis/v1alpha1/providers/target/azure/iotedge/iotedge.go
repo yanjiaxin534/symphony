@@ -50,6 +50,19 @@ type IoTEdgeTargetProviderConfig struct {
 type IoTEdgeTargetProvider struct {
 	Config  IoTEdgeTargetProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *IoTEdgeTargetProvider) InstallComponent(component providers.Component) {
+	// IoTEdgeTargetProvider 特有的安装逻辑
+	// fmt.Printf("IoTEdgeTargetProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *IoTEdgeTargetProvider) UninstallComponent(component providers.Component) {
+	// IoTEdgeTargetProvider 特有的卸载逻辑
+	// fmt.Printf("IoTEdgeTargetProvider uninstalling component: %s\n", component.Name)
 }
 
 // Azure IoT Edge objects

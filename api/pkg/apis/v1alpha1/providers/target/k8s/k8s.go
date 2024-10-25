@@ -76,6 +76,19 @@ type K8sTargetProvider struct {
 	Context       *contexts.ManagerContext
 	Client        kubernetes.Interface
 	DynamicClient dynamic.Interface
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *K8sTargetProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *K8sTargetProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 type pollGet func() error

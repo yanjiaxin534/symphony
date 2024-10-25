@@ -26,6 +26,19 @@ type MockTargetProviderConfig struct {
 type MockTargetProvider struct {
 	Config  MockTargetProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *MockTargetProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	fmt.Printf("mock provider will installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *MockTargetProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 var cache map[string][]model.ComponentSpec

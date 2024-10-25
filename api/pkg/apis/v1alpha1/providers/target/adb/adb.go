@@ -34,8 +34,20 @@ type AdbProviderConfig struct {
 type AdbProvider struct {
 	Config  AdbProviderConfig
 	Context *contexts.ManagerContext
+	providers.BaseTargetProvider
 }
 
+// 实现 InstallComponent 方法
+func (h *AdbProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *AdbProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
+}
 func AdbProviderConfigFromMap(properties map[string]string) (AdbProviderConfig, error) {
 	ret := AdbProviderConfig{}
 	if v, ok := properties["name"]; ok {

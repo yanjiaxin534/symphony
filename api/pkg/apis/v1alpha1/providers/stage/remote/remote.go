@@ -29,6 +29,19 @@ type RemoteStageProvider struct {
 	Config        RemoteStageProviderConfig
 	Context       *contexts.ManagerContext
 	OutputContext map[string]map[string]interface{}
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *RemoteStageProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *RemoteStageProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 func (m *RemoteStageProvider) Init(config providers.IProviderConfig) error {

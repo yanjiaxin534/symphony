@@ -66,8 +66,21 @@ type (
 		DiscoveryClient *discovery.DiscoveryClient
 		Mapper          *restmapper.DeferredDiscoveryRESTMapper
 		RESTConfig      *rest.Config
+		providers.BaseTargetProvider
 	}
 )
+
+// 实现 InstallComponent 方法
+func (h *ConfigMapTargetProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	// fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *ConfigMapTargetProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	// fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
+}
 
 // ConfigMapTargetProviderConfigFromMap converts a map to a ConfigMapTargetProviderConfig
 func ConfigMapTargetProviderConfigFromMap(properties map[string]string) (ConfigMapTargetProviderConfig, error) {

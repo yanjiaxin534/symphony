@@ -51,6 +51,19 @@ type WaitStageProvider struct {
 	Config    WaitStageProviderConfig
 	Context   *contexts.ManagerContext
 	ApiClient api_utils.ApiClient
+	providers.BaseTargetProvider
+}
+
+// 实现 InstallComponent 方法
+func (h *WaitStageProvider) InstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的安装逻辑
+	fmt.Printf("K8sStateProvider installing component: %s\n", component.Name)
+}
+
+// 实现 UninstallComponent 方法
+func (h *WaitStageProvider) UninstallComponent(component providers.Component) {
+	// K8sStateProvider 特有的卸载逻辑
+	fmt.Printf("K8sStateProvider uninstalling component: %s\n", component.Name)
 }
 
 func (s *WaitStageProvider) Init(config providers.IProviderConfig) error {
