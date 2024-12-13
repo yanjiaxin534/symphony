@@ -392,6 +392,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 
 	mergedState := MergeDeploymentStates(&currentState, desiredState)
 	var plan model.DeploymentPlan
+	// test log
 	plan, err = PlanForDeployment(deployment, mergedState)
 	if err != nil {
 		summary.SummaryMessage = "failed to plan for deployment: " + err.Error()
