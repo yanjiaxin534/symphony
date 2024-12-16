@@ -253,6 +253,25 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 			}
 		}
 		summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
+		plan, _ := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		// start a plan actor
+		// get plan
+		//publish plan
+		c.Vendor.Context.Publish("plan-execute", v1alpha2.Event{
+			Metadata: map[string]string{
+				// "objectType": objectType,
+				"namespace": namespace,
+			},
+			Body: v1alpha2.JobData{
+				Id:   deployment.JobID,
+				Body: plan,
+				// Scope:  namespace,
+				// Action: action,
+				// Data:   request.Body,
+			},
+			Context: ctx,
+		})
+		// the plan actor get the plan and print it
 		data, _ := json.Marshal(summary)
 		if err != nil {
 			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - reconcile %s", err.Error())

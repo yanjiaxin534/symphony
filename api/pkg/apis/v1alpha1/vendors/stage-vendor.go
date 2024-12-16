@@ -343,6 +343,45 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			return nil
 		},
 	})
+
+	s.Vendor.Context.Subscribe("plan-execute", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			// get plan
+			// get next step
+			// execute step (later will publish a topic to redis and provider actor execute details)
+			// publish to result to topic
+			ctx := context.TODO()
+			if event.Context != nil {
+				ctx = event.Context
+			}
+			// Unwrap data package from event body
+			jData, _ := json.Marshal(event.Body)
+			log.InfoCtx(ctx, "<<<< test plan-execute get topic info %s", jData)
+			// get data formate and set it
+			// var job v1alpha2.JobData
+			// json.Unmarshal(jData, &job)
+			s.Vendor.Context.Publish("report", v1alpha2.Event{
+				Body:    jData,
+				Context: ctx,
+			})
+			return nil
+		},
+	})
+
+	s.Vendor.Context.Subscribe("plan-execute-result", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			// subscribe result and save summary
+			//publish result to solution vendor
+			ctx := context.TODO()
+			if event.Context != nil {
+				ctx = event.Context
+			}
+			// Unwrap data package from event body
+			jData, _ := json.Marshal(event.Body)
+			log.InfoCtx(ctx, "<<<< test plan-execute-result get topic info %s", jData)
+			return nil
+		},
+	})
 	return nil
 }
 
