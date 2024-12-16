@@ -18,6 +18,7 @@ func PlanForDeployment(deployment model.DeploymentSpec, state model.DeploymentSt
 	ret := model.DeploymentPlan{
 		Steps: make([]model.DeploymentStep, 0),
 	}
+	log.Info("<<< generate plan for deployment")
 	for _, c := range state.Components {
 		for _, t := range state.Targets {
 			key := fmt.Sprintf("%s::%s", c.Name, t.Name) //TODO: this assumes provider/component keys don't contain "::"
@@ -32,6 +33,7 @@ func PlanForDeployment(deployment model.DeploymentSpec, state model.DeploymentSt
 				}
 				index := ret.FindLastTargetRole(t.Name, c.Type)
 				if index < 0 || !ret.CanAppendToStep(index, c) {
+					log.Infof("<<< add new step %+v with action %+v", c, action)
 					ret.Steps = append(ret.Steps, model.DeploymentStep{
 						Target:  t.Name,
 						Role:    role,
@@ -44,6 +46,7 @@ func PlanForDeployment(deployment model.DeploymentSpec, state model.DeploymentSt
 						},
 					})
 				} else {
+					log.Info("<<< append to current step %+v with action %+v to step %+v", c, action, ret.Steps[index])
 					ret.Steps[index].Components = append(ret.Steps[index].Components, model.ComponentStep{
 						Action:    action,
 						Component: c,
@@ -52,6 +55,7 @@ func PlanForDeployment(deployment model.DeploymentSpec, state model.DeploymentSt
 			}
 		}
 	}
+	log.Info("<<< final plan %+v", ret.RevisedForDeletion())
 	return ret.RevisedForDeletion(), nil
 }
 
