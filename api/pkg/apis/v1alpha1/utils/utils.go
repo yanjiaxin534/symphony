@@ -121,12 +121,14 @@ func ContainsString(names []string, name string) bool {
 	return false
 }
 func MergeCollection(cols ...map[string]string) map[string]string {
+	log.Info("merge collection %+v", cols)
 	ret := make(map[string]string)
 	for _, col := range cols {
 		for k, v := range col {
 			ret[k] = v
 		}
 	}
+	log.Info("merge collection with return result %+v", ret)
 	return ret
 }
 func CollectStringMap(col map[string]string, prefix string) map[string]string {

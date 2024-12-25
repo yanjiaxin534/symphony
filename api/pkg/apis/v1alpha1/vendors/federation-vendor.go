@@ -11,13 +11,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/catalogs"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/sites"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/staging"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/sync"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/trails"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
+	tgt "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/managers"
@@ -37,6 +40,7 @@ type FederationVendor struct {
 	SitesManager    *sites.SitesManager
 	CatalogsManager *catalogs.CatalogsManager
 	StagingManager  *staging.StagingManager
+	SolutionManager *solution.SolutionManager
 	SyncManager     *sync.SyncManager
 	TrailsManager   *trails.TrailsManager
 	apiClient       utils.ApiClient
@@ -117,6 +121,40 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			return nil
 		},
 	})
+	f.Vendor.Context.Subscribe("deployment-step", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			ctx := event.Context
+			if ctx == nil {
+				ctx = context.TODO()
+			}
+
+			// get data
+			var stepEnvelope StepEnvelope
+			jData, _ := json.Marshal(event.Body)
+			log.InfoCtx(ctx, "deployment-step get data  %v ", jData)
+			if err := json.Unmarshal(jData, &stepEnvelope); err != nil {
+				log.ErrorfCtx(ctx, "V (Federation): failed to unmarshal step envelope: %v", err)
+				return err
+			}
+
+			// get provider todo : is dry run
+			log.InfoCtx(ctx, "deployment-step begin to apply step ")
+			componentResults, stepError := (stepEnvelope.Provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
+			log.InfoCtx(ctx, "need to deploy a deployment")
+
+			if stepError != nil {
+				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+				targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
+				targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}
+				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, componentResults)
+			}
+			log.InfoCtx(ctx, "deployment-step deploy done ")
+			targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
+			log.InfoCtx(ctx, "begin to publish result ")
+			return f.publishStepResult(ctx, stepEnvelope, true, targetResultSpec, componentResults)
+		},
+		Group: "federation-vendor",
+	})
 	f.Vendor.Context.Subscribe("report", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
@@ -165,6 +203,23 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 		Name:       f.Context.SiteInfo.SiteId,
 		Properties: f.Context.SiteInfo.Properties,
 		IsSelf:     true,
+	})
+}
+func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, spec model.TargetResultSpec, components map[string]model.ComponentResultSpec) error {
+	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+		Metadata: map[string]string{
+			"planId": stepEnvelope.PlanId,
+			"stepId": stepEnvelope.StepId,
+		},
+		Body: StepResult{
+			Step:             stepEnvelope.Step,
+			PlanId:           stepEnvelope.StepId,
+			StepId:           stepEnvelope.StepId,
+			Success:          success,
+			TargetResultSpec: spec,
+			Components:       components,
+			Timestamp:        time.Now(),
+		},
 	})
 }
 func (f *FederationVendor) GetEndpoints() []v1alpha2.Endpoint {

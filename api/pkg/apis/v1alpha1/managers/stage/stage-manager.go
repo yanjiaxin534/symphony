@@ -124,6 +124,48 @@ func (s *StageManager) Poll() []error {
 func (s *StageManager) Reconcil() []error {
 	return nil
 }
+
+// func (s *SolutionManager) handlePlanTimeout(ctx context.Context, planState *PlanState) error {
+// 	planState.Status = PlanStatusTimeout
+// 	planState.Summary.SummaryMessage = fmt.Sprintf("plan execution time out after complete %d/%d steps", planState.completedSteps, planState.TotalSteps)
+
+// 	// save timeout state
+// 	summaryResult := model.SummaryResult{
+// 		Summary: *planState.Summary,
+// 		Generation: planState.Deployment.Generation,
+// 		Time: time.Now().UTC(),
+// 		State: model.SummaryStateDone,
+// 		DeploymentHash: planState.Deployment.Hash,
+// 	}
+
+// 	if err:= s.StateProvider.Upsert(ctx, states.UpsertRequest{
+// 		Value: states.StateEntry{
+// 			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name),
+// 			Body: summaryResult,
+// 		},
+// 		Metadata: map[string]interface{}{
+// 			"namespace": planState.Deployment.Namespace,
+// 			"group":     model.SolutionGroup,
+// 			"version":   "v1",
+// 			"resource":  "Summary",
+// 		},
+// 	}); err != nil{
+// 		return err
+// 	}
+
+// 	// publish timeout event
+// 	return s.Vendor.Context.Publish("deployment-result", v1alpha2.Event{
+// 		Body: PlanResult{
+// 			DeploymentName: planState.Deployment.Instance.ObjectMeta.Name,
+// 			Namespace: planState.Deployment.Namespace,
+// 			Generation: planState.Deployment,
+// 			Hash: planState.Deployment.Hash,
+// 			// todo : more info
+// 		},
+// 		Context: ctx,
+// 	})
+
+// }
 func (s *StageManager) ResumeStage(ctx context.Context, status model.StageStatus, cam model.CampaignSpec) (*v1alpha2.ActivationData, error) {
 	log.InfofCtx(ctx, " M (Stage): ResumeStage: %v\n", status)
 	campaign, ok := status.Outputs["__campaign"].(string)
