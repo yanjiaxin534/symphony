@@ -31,15 +31,15 @@ const (
 )
 
 type PlanEnvelope struct {
-	Plan                 model.DeploymentPlan                    `json:"plan"`
-	Deployment           model.DeploymentSpec                    `json:"deployment"`
-	MergedState          model.DeploymentState                   `json:"mergedState"`
-	previousDesiredState solution.SolutionManagerDeploymentState `json:"previousDesiredState"`
-	Remove               bool                                    `json:"remove"`
-	Namespace            string                                  `json:"namespace"`
-	PlanId               string                                  `json:"planId"`
-	Generation           string                                  `json:"generation"` // deployment version
-	Hash                 string                                  `json:"hash"`
+	Plan                 model.DeploymentPlan                     `json:"plan"`
+	Deployment           model.DeploymentSpec                     `json:"deployment"`
+	MergedState          model.DeploymentState                    `json:"mergedState"`
+	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previousDesiredState"`
+	Remove               bool                                     `json:"remove"`
+	Namespace            string                                   `json:"namespace"`
+	PlanId               string                                   `json:"planId"`
+	Generation           string                                   `json:"generation"` // deployment version
+	Hash                 string                                   `json:"hash"`
 }
 type PlanResult struct {
 	PlanState PlanState `json:"planstate"`
@@ -72,17 +72,17 @@ type StepResult struct {
 }
 
 type PlanState struct {
-	PlanId               string                                  `json:"planId"`
-	StartTime            time.Time                               `json:"startTime"`
-	ExpireTime           time.Time                               `json:"expireTime"`
-	TotalSteps           int                                     `json:"totalSteps"`
-	CompletedSteps       int                                     `json:"completedSteps"`
-	Summary              *model.SummarySpec                      `json:"summary"`
-	MergedState          model.DeploymentState                   `json:"mergedState"`
-	Deployment           model.DeploymentSpec                    `json:"deployment"`
-	PreviousDesiredState solution.SolutionManagerDeploymentState `json:"previous`
-	Status               string                                  `json:"status"`
-	Namespace            string                                  `json:"namespace"`
+	PlanId               string                                   `json:"planId"`
+	StartTime            time.Time                                `json:"startTime"`
+	ExpireTime           time.Time                                `json:"expireTime"`
+	TotalSteps           int                                      `json:"totalSteps"`
+	CompletedSteps       int                                      `json:"completedSteps"`
+	Summary              model.SummarySpec                        `json:"summary"`
+	MergedState          model.DeploymentState                    `json:"mergedState"`
+	Deployment           model.DeploymentSpec                     `json:"deployment"`
+	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
+	Status               string                                   `json:"status"`
+	Namespace            string                                   `json:"namespace"`
 	lock                 sync.Mutex
 }
 
