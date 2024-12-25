@@ -221,6 +221,21 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		ContentType: "application/json",
 	})
 }
+
+func (v *SolutionVendor) handlePlanResult(topic string, event v1alpha2.Event) error {
+	ctx := event.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var result PlanResult
+	if err := json.Unmarshal(event.Body.([]byte), &result); err != nil {
+		log.ErrorfCtx(ctx, "Failed to unmarshal plan result: %v", err)
+		return err
+	}
+
+	log.InfofCtx(ctx, "handle plan result ")
+	return nil
+}
 func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COAResponse {
 	rContext, span := observability.StartSpan("Solution Vendor", request.Context, &map[string]string{
 		"method": "onReconcile",
@@ -237,6 +252,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		ctx, span := observability.StartSpan("onReconcile-POST", rContext, nil)
 		defer span.End()
 		var deployment model.DeploymentSpec
+		// get deployment
 		err := json.Unmarshal(request.Body, &deployment)
 		if err != nil {
 			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - unmarshal request %s", err.Error())
@@ -245,44 +261,54 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				Body:  []byte(err.Error()),
 			})
 		}
+		// get action
 		delete := request.Parameters["delete"]
+		// get target name
 		targetName := ""
 		if request.Metadata != nil {
 			if v, ok := request.Metadata["active-target"]; ok {
 				targetName = v
 			}
 		}
-		summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
-		plan, _ := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
-		// start a plan actor
-		// get plan
-		//publish plan
-		c.Vendor.Context.Publish("plan-execute", v1alpha2.Event{
-			Metadata: map[string]string{
-				// "objectType": objectType,
-				"namespace": namespace,
-			},
+		// todo here
+		// summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
+		plan, mergedState, previousDesiredState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		if error != nil {
+			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
+			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
+				State: v1alpha2.InternalError,
+				Body:  []byte(err.Error()),
+			})
+		}
+
+		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
 			Body: v1alpha2.JobData{
-				Id:   deployment.JobID,
-				Body: plan,
-				// Scope:  namespace,
-				// Action: action,
-				// Data:   request.Body,
+				Id: deployment.JobID,
+				Body: PlanEnvelope{
+					Plan:                 plan,
+					Deployment:           deployment,
+					MergedState:          mergedState,
+					previousDesiredState: previousDesiredState,
+					PlanId:               deployment.Instance.ObjectMeta.Name,
+					Remove:               delete == "true",
+					Namespace:            namespace,
+				},
 			},
 			Context: ctx,
 		})
+
 		// the plan actor get the plan and print it
-		data, _ := json.Marshal(summary)
-		if err != nil {
-			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - reconcile %s", err.Error())
-			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
-				State: v1alpha2.InternalError,
-				Body:  data,
-			})
-		}
+		// data, _ := json.Marshal(summary)
+		// if err != nil {
+		// 	sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - reconcile %s", err.Error())
+		// 	return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
+		// 		State: v1alpha2.InternalError,
+		// 		Body:  data,
+		// 	})
+		// }
 		return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
-			State:       v1alpha2.OK,
-			Body:        data,
+			State: v1alpha2.OK,
+			// Body:        data,
 			ContentType: "application/json",
 		})
 	}

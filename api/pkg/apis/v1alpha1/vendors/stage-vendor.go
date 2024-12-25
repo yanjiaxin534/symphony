@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/activations"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/campaigns"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/stage"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/stage/materialize"
@@ -28,6 +30,10 @@ import (
 	"github.com/eclipse-symphony/symphony/coa/pkg/logger"
 )
 
+const (
+	DefaultPlanTimeout = 5 * time.Second
+)
+
 var sLog = logger.NewLogger("coa.runtime")
 
 type StageVendor struct {
@@ -35,6 +41,8 @@ type StageVendor struct {
 	StageManager       *stage.StageManager
 	CampaignsManager   *campaigns.CampaignsManager
 	ActivationsManager *activations.ActivationsManager
+	SolutionManager    *solution.SolutionManager
+	PlanManager        *PlanManager
 }
 
 func (s *StageVendor) GetInfo() vendors.VendorInfo {
@@ -49,6 +57,14 @@ func (o *StageVendor) GetEndpoints() []v1alpha2.Endpoint {
 	return []v1alpha2.Endpoint{}
 }
 
+func NewPlanManager(timeout time.Duration) *PlanManager {
+	if timeout == 0 {
+		timeout = DefaultPlanTimeout
+	}
+	return &PlanManager{
+		Timeout: timeout,
+	}
+}
 func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IManagerFactroy, providers map[string]map[string]providers.IProvider, pubsubProvider pubsub.IPubSubProvider) error {
 	err := s.Vendor.Init(config, factories, providers, pubsubProvider)
 	if err != nil {
@@ -64,6 +80,9 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		if c, ok := m.(*activations.ActivationsManager); ok {
 			s.ActivationsManager = c
 		}
+		if c, ok := m.(*solution.SolutionManager); ok {
+			s.SolutionManager = c
+		}
 	}
 	if s.StageManager == nil {
 		return v1alpha2.NewCOAError(nil, "stage manager is not supplied", v1alpha2.MissingConfig)
@@ -74,6 +93,10 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 	if s.ActivationsManager == nil {
 		return v1alpha2.NewCOAError(nil, "activations manager is not supplied", v1alpha2.MissingConfig)
 	}
+	if s.SolutionManager == nil {
+		return v1alpha2.NewCOAError(nil, "solution manager is not supplied", v1alpha2.MissingConfig)
+	}
+	s.PlanManager = NewPlanManager(0)
 	s.Vendor.Context.Subscribe("activation", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
@@ -344,45 +367,260 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		},
 	})
 
-	s.Vendor.Context.Subscribe("plan-execute", v1alpha2.EventHandler{
+	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
-			// get plan
-			// get next step
-			// execute step (later will publish a topic to redis and provider actor execute details)
-			// publish to result to topic
 			ctx := context.TODO()
 			if event.Context != nil {
 				ctx = event.Context
 			}
-			// Unwrap data package from event body
+			var planEnvelope PlanEnvelope
 			jData, _ := json.Marshal(event.Body)
-			log.InfoCtx(ctx, "<<<< test plan-execute get topic info %s", jData)
-			// get data formate and set it
-			// var job v1alpha2.JobData
-			// json.Unmarshal(jData, &job)
-			s.Vendor.Context.Publish("report", v1alpha2.Event{
-				Body:    jData,
-				Context: ctx,
-			})
+			err := json.Unmarshal(jData, &planEnvelope)
+			if err != nil {
+				log.ErrorCtx(ctx, "failed to unmarshal plan envelope :%v", err)
+				return err
+			}
+
+			log.InfoCtx(ctx, "deployment-plan: get jdata get from plan execute topic &%v", jData)
+			// // create summary
+			// summary := model.SummarySpec{
+			// 	TargetResults: make(map[string]model.TargetResultSpec),
+			// 	TargetCount:   len(planEnvelope.Deployment.Targets),
+			// 	JobID:         planEnvelope.Deployment.JobID,
+			// }
+
+			planState := &PlanState{
+				PlanId:     planEnvelope.PlanId,
+				StartTime:  time.Now(),
+				ExpireTime: time.Now().Add(s.PlanManager.Timeout),
+				TotalSteps: len(planEnvelope.Plan.Steps),
+				Summary: &model.SummarySpec{
+					TargetResults: make(map[string]model.TargetResultSpec),
+					TargetCount:   len(planEnvelope.Deployment.Targets),
+				},
+				PreviousDesiredState: planEnvelope.previousDesiredState,
+				MergedState:          planEnvelope.MergedState,
+				Deployment:           planEnvelope.Deployment,
+				Namespace:            planEnvelope.Namespace,
+			}
+			log.InfoCtx(ctx, "<<<< tstore plan id %s plan  %v", planEnvelope.PlanId, planState)
+			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
+			// get provider
+			for i, step := range planEnvelope.Plan.Steps {
+				stepId := fmt.Sprintf("%s-step-%d", planEnvelope.PlanId, i)
+				provider, err := s.SolutionManager.GetTargetProviderForStep(step, planEnvelope.Deployment, planEnvelope.previousDesiredState)
+				if err != nil {
+					planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
+					s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
+					log.ErrorfCtx(ctx, " M (Solution): failed to create provider: %+v", err)
+					// update summary
+					if err := s.SolutionManager.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
+						log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
+					}
+					return err
+				}
+				log.InfoCtx(ctx, "deployment-plan: publish deployment step id %s step %+v", stepId, step)
+				s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
+					Metadata: map[string]string{
+						"planId": planEnvelope.PlanId,
+						"stepId": stepId,
+					},
+					Body: StepEnvelope{
+						Step:       step,
+						Deployment: planEnvelope.Deployment,
+						Remove:     planEnvelope.Remove,
+						Namespace:  planEnvelope.Namespace,
+						Provider:   provider,
+					},
+					Context: ctx,
+				})
+			}
 			return nil
+			// // get plan
+			// // get next step
+			// // execute step (later will publish a topic to redis and provider actor execute details)
+			// // publish to result to topic
+			// ctx := context.TODO()
+			// if event.Context != nil {
+			// 	ctx = event.Context
+			// }
+			// // Unwrap data package from event body
+			// jData, _ := json.Marshal(event.Body)
+			// log.InfoCtx(ctx, "<<<< test deployment-plan get topic info %s", jData)
+			// if !jData.De
+			// // get data formate and set it
+			// // var job v1alpha2.JobData
+			// // json.Unmarshal(jData, &job)
+			// s.Vendor.Context.Publish("report", v1alpha2.Event{
+			// 	Body:    jData,
+			// 	Context: ctx,
+			// })
+			// return nil
 		},
+		Group: "stage-vendor",
 	})
 
-	s.Vendor.Context.Subscribe("plan-execute-result", v1alpha2.EventHandler{
+	s.Vendor.Context.Subscribe("step-result", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			// subscribe result and save summary
 			//publish result to solution vendor
-			ctx := context.TODO()
-			if event.Context != nil {
-				ctx = event.Context
+			ctx := event.Context
+			if ctx == nil {
+				ctx = context.TODO()
 			}
-			// Unwrap data package from event body
+
+			var stepResult StepResult
 			jData, _ := json.Marshal(event.Body)
-			log.InfoCtx(ctx, "<<<< test plan-execute-result get topic info %s", jData)
+			log.InfofCtx(ctx, " subscribe step-result %v", jData)
+			if err := json.Unmarshal(jData, &stepResult); err != nil {
+				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
+				return err
+			}
+
+			planId := event.Metadata["planId"]
+			planStateObj, exists := s.PlanManager.Plans.Load(planId)
+			if !exists {
+				log.ErrorCtx(ctx, "stage plan %s not fount ", planId)
+				return fmt.Errorf("plan not fount %s", planId)
+			}
+			planState := planStateObj.(*PlanState)
+
+			// update plan state
+			log.InfoCtx(ctx, "update plan state ")
+			if err := s.updatePlanState(ctx, planState, stepResult); err != nil {
+				log.ErrorCtx(ctx, " failed to update plan state %v", err)
+				return err
+			}
+
+			// if plan is complete -> publish plan result
+
+			// if event.Context != nil {
+			// 	ctx = event.Context
+			// }
+			// // Unwrap data package from event body
+			// jData, _ := json.Marshal(event.Body)
+			// log.InfoCtx(ctx, "<<<< test deployment-plan-result get topic info %s", jData)
 			return nil
 		},
+		Group: "stage-vendor",
 	})
+
 	return nil
+}
+
+func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState, stepResult StepResult) error {
+	log.InfoCtx(ctx, "update plan state %v with step result %v", planState, stepResult)
+	if planState.IsExpired() {
+		if err := s.handlePlanTimeout(ctx, planState); err != nil {
+			return err
+		}
+		s.PlanManager.DeletePlan(planState.PlanId)
+	}
+	log.InfoCtx(ctx, "todo update plan state")
+	// update step
+	planState.CompletedSteps++
+	if stepResult.Success {
+		planState.Summary.SuccessCount++
+	}
+
+	//update target
+	log.InfoCtx(ctx, "update plan state target spec %v ", stepResult.TargetResultSpec)
+	planState.Summary.TargetResults[stepResult.Step.Target] = stepResult.TargetResultSpec
+
+	// update summary
+	if err := s.SolutionManager.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
+		log.ErrorfCtx(ctx, "Failed to save summary progress: %v", err)
+	}
+	log.InfoCtx(ctx, "if plan state is completed %v ", planState)
+	// check if all step is completed
+	if planState.isCompleted() {
+		log.InfoCtx(ctx, "plan state is completed %v ", planState)
+		allSuccess := planState.Summary.SuccessCount == planState.TotalSteps
+		planState.Summary.AllAssignedDeployed = allSuccess
+		if !allSuccess {
+			planState.Status = "failed"
+		}
+		log.InfoCtx(ctx, "plan state is completed %v ", allSuccess)
+		// handle plan completed
+		if err := s.handlePlanCompletetion(ctx, planState); err != nil {
+			log.ErrorfCtx(ctx, "Failed to handle plan completion: %v", err)
+			return err
+		}
+
+		s.PlanManager.DeletePlan(planState.PlanId)
+
+	}
+	return nil
+}
+
+func (p *PlanState) IsExpired() bool {
+	return time.Now().After(p.ExpireTime)
+}
+
+func (p *PlanState) isCompleted() bool {
+	return p.CompletedSteps == p.TotalSteps
+}
+func (pm *PlanManager) GetPlan(planId string) (*PlanState, bool) {
+	if value, ok := pm.Plans.Load(planId); ok {
+		return value.(*PlanState), true
+	}
+	return nil, false
+}
+func (pm *PlanManager) DeletePlan(planId string) {
+	pm.Plans.Delete(planId)
+}
+
+func (pm *PlanManager) CreatePlan(planEnvelope PlanEnvelope) *PlanState {
+	planState := &PlanState{
+		PlanId:     planEnvelope.PlanId,
+		StartTime:  time.Now(),
+		ExpireTime: time.Now().Add(pm.Timeout),
+		TotalSteps: len(planEnvelope.Plan.Steps),
+		Summary: &model.SummarySpec{
+			TargetResults: make(map[string]model.TargetResultSpec),
+			TargetCount:   len(planEnvelope.Deployment.Targets),
+		},
+		MergedState: planEnvelope.MergedState,
+		Deployment:  planEnvelope.Deployment,
+		Status:      "PlanStatusRunning",
+	}
+	pm.Plans.Store(planEnvelope.PlanId, planState)
+	return planState
+}
+
+func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState *PlanState) error {
+	log.InfofCtx(ctx, "handle plan completetion:begin to handle plan completetion %v", planState)
+	if err := s.SolutionManager.SaveSummaryInfo(ctx, planState, model.SummaryStateDone); err != nil {
+		log.ErrorfCtx(ctx, "Failed to save summary progress done: %v", err)
+		return err
+	}
+	log.InfofCtx(ctx, "handle plan completetion: begin to handle plan completetion ")
+	// update summary
+	if err := s.SolutionManager.ConcludeSummary(ctx, planState.Deployment.Instance.ObjectMeta.Name, planState.Deployment.Generation, planState.Deployment.Hash, *planState.Summary, planState.Namespace); err != nil {
+		log.ErrorfCtx(ctx, "handle plan completetion: failed to conclude summary: %v", err)
+		return err
+	}
+	log.InfofCtx(ctx, "handle plan completetion: update summary done %v", planState)
+	return nil
+}
+func (s *StageVendor) handlePlanTimeout(ctx context.Context, planState *PlanState) error {
+	planState.Summary.SummaryMessage = fmt.Sprintf("plan execution time out after complete %d/%d steps", planState.CompletedSteps, planState.TotalSteps)
+
+	if err := s.SolutionManager.SaveSummaryInfo(ctx, planState, model.SummaryStateDone); err != nil {
+		log.ErrorfCtx(ctx, "Failed to save summary progress done: %v", err)
+		return err
+	}
+	return s.Vendor.Context.Publish("deployment-result", v1alpha2.Event{
+		Metadata: map[string]string{
+			"planId": planState.PlanId,
+			"status": "timeout",
+		},
+		Body: PlanResult{
+			EndTime:   time.Now(),
+			PlanState: *planState,
+		},
+		Context: ctx,
+	})
 }
 
 func (s *StageVendor) reportActivationStatusWithBadRequest(activation string, namespace string, err error) error {
