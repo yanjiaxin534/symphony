@@ -142,7 +142,7 @@ func (s *SolutionManager) Init(context *contexts.VendorContext, config managers.
 	return nil
 }
 
-func (s *SolutionManager) getPreviousState(ctx context.Context, instance string, namespace string) *SolutionManagerDeploymentState {
+func (s *SolutionManager) GetPreviousState(ctx context.Context, instance string, namespace string) *SolutionManagerDeploymentState {
 	state, err := s.StateProvider.Get(ctx, states.GetRequest{
 		ID: instance,
 		Metadata: map[string]interface{}{
@@ -283,20 +283,20 @@ func (s *SolutionManager) cleanupHeartbeat(ctx context.Context, id string, names
 		Context: ctx,
 	})
 }
-func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.DeploymentPlan, model.DeploymentState, solution.SolutionManagerDeploymentState, error) {
+func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.DeploymentPlan, model.DeploymentState, error) {
 	log.InfoCtx(ctx, " begin to generate plan ")
-	previousDesiredState := s.getPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
+	previousDesiredState := s.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 	var currentDesiredState, currentState model.DeploymentState
 	currentDesiredState, err := NewDeploymentState(deployment)
 	if err != nil {
-		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, err
 	}
 	//todo:  change to async get be provider actor
 	currentState, _, err = s.Get(ctx, deployment, targetName)
 	if err != nil {
 		log.ErrorfCtx(ctx, " M (Solution): failed to get current state: %+v", err)
-		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, err
 	}
 	desiredState := currentDesiredState
 	if previousDesiredState != nil {
@@ -311,10 +311,10 @@ func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.Dep
 	plan, err := PlanForDeployment(deployment, mergedState)
 	if err != nil {
 		log.ErrorfCtx(ctx, " M (Solution): failed to plan for deployment: %+v", err)
-		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, err
 	}
 
-	return plan, mergedState, previousDesiredState, nil
+	return plan, mergedState, nil
 }
 
 func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.SummarySpec, error) {
@@ -499,7 +499,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 		var provider providers.IProvider
 		// provider
 		if override == nil {
-			targetSpec := s.getTargetStateForStep(step, deployment, previousDesiredState)
+			targetSpec := s.GetTargetStateForStep(step, deployment, previousDesiredState)
 			provider, err = sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
 			if err != nil {
 				summary.SummaryMessage = "failed to create provider:" + err.Error()
@@ -627,22 +627,36 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 	return summary, nil
 }
 
-// The deployment spec may have changed, so the previous target is not in the new deployment anymore
-func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState solution.SolutionManagerDeploymentState) (providers.IProvider, error) {
-	var override tgt.ITargetProvider
-	role := step.Role
-	if role == "container" {
-		role = "instance"
+func (s *SolutionManager) GetTargetStateForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDeploymentState *SolutionManagerDeploymentState) model.TargetState {
+	//first find the target spec in the deployment
+	targetSpec, ok := deployment.Targets[step.Target]
+	if !ok {
+		if previousDeploymentState != nil {
+			targetSpec = previousDeploymentState.Spec.Targets[step.Target]
+		}
 	}
-	if v, ok := s.TargetProviders[role]; ok {
-		return v, nil
+	return targetSpec
+}
+func (s *SolutionManager) getPreviousState(ctx context.Context, instance string, namespace string) *SolutionManagerDeploymentState {
+	state, err := s.StateProvider.Get(ctx, states.GetRequest{
+		ID: instance,
+		Metadata: map[string]interface{}{
+			"namespace": namespace,
+			"group":     model.SolutionGroup,
+			"version":   "v1",
+			"resource":  DeploymentState,
+		},
+	})
+	if err == nil {
+		var managerState SolutionManagerDeploymentState
+		jData, _ := json.Marshal(state.Body)
+		err = json.Unmarshal(jData, &managerState)
+		if err == nil {
+			return &managerState
+		}
 	}
-	targetSpec := s.getTargetStateForStep(step, deployment, previousDesiredState)
-	provider, err := sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
-	if err != nil {
-		return nil, err
-	}
-	return provider, nil
+	log.InfofCtx(ctx, " M (Solution): failed to get previous state for instance %s in namespace %s: %+v", instance, namespace, err)
+	return nil
 }
 
 // func (s *SolutionManager) updatePlanState(ctx context.Context, planState *PlanState, stepResult StepResult) error {
@@ -748,28 +762,6 @@ func (s *SolutionManager) saveSummary(ctx context.Context, objectName string, ge
 
 func (s *SolutionManager) saveSummaryProgress(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, namespace string) error {
 	return s.saveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateRunning, namespace)
-}
-
-func (s *SolutionManager) SaveSummaryInfo(ctx context.Context, planState PlanState, state model.SummaryState) error {
-	_, err = s.StateProvider.Upsert(ctx, states.UpsertRequest{
-		Value: states.StateEntry{
-			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name),
-			Body: model.SummaryResult{
-				Summary:        planState.Summary,
-				Generation:     planState.Deployment.Generation,
-				Time:           time.Now().UTC(),
-				State:          state,
-				DeploymentHash: planState.Deployment.Hash,
-			},
-		},
-		Metadata: map[string]interface{}{
-			"namespace": namespace,
-			"group":     model.SolutionGroup,
-			"version":   "v1",
-			"resource":  Summary,
-		},
-	})
-	return err
 }
 
 func (s *SolutionManager) ConcludeSummary(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, namespace string) error {

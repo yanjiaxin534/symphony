@@ -272,7 +272,9 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		}
 		// todo here
 		// summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
-		plan, mergedState, previousDesiredState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		plan, mergedState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
+
 		if error != nil {
 			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
@@ -288,7 +290,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 					Plan:                 plan,
 					Deployment:           deployment,
 					MergedState:          mergedState,
-					previousDesiredState: previousDesiredState,
+					PreviousDesiredState: previousDesiredState,
 					PlanId:               deployment.Instance.ObjectMeta.Name,
 					Remove:               delete == "true",
 					Namespace:            namespace,
