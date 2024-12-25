@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution/metrics"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 	sp "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers"
@@ -283,20 +284,20 @@ func (s *SolutionManager) cleanupHeartbeat(ctx context.Context, id string, names
 		Context: ctx,
 	})
 }
-func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.DeploymentPlan, solution.SolutionManagerDeploymentState, model., error) {
+func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.DeploymentPlan, model.DeploymentState, solution.SolutionManagerDeploymentState, error) {
 	log.InfoCtx(ctx, " begin to generate plan ")
 	previousDesiredState := s.getPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 	var currentDesiredState, currentState model.DeploymentState
 	currentDesiredState, err := NewDeploymentState(deployment)
 	if err != nil {
-		return model.DeploymentPlan{}, model.DeploymentState{},model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
 	}
 	//todo:  change to async get be provider actor
 	currentState, _, err = s.Get(ctx, deployment, targetName)
 	if err != nil {
 		log.ErrorfCtx(ctx, " M (Solution): failed to get current state: %+v", err)
-		return model.DeploymentPlan{}, model.DeploymentState{},model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
 	}
 	desiredState := currentDesiredState
 	if previousDesiredState != nil {
@@ -311,7 +312,7 @@ func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.Dep
 	plan, err := PlanForDeployment(deployment, mergedState)
 	if err != nil {
 		log.ErrorfCtx(ctx, " M (Solution): failed to plan for deployment: %+v", err)
-		return model.DeploymentPlan{}, model.DeploymentState{},model.DeploymentState{}, err
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
 	}
 
 	return plan, mergedState, previousDesiredState, nil
@@ -644,6 +645,7 @@ func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, de
 	}
 	return provider, nil
 }
+
 // func (s *SolutionManager) updatePlanState(ctx context.Context, planState *PlanState, stepResult StepResult) error {
 // 	if planState.IsExpired(){
 // 		if err := s.handlePlanTimeout(ctx, planState); err != nil {
@@ -752,7 +754,7 @@ func (s *SolutionManager) saveSummaryProgress(ctx context.Context, objectName st
 func (s *SolutionManager) SaveSummaryInfo(ctx context.Context, planState PlanState, state model.SummaryState) error {
 	_, err = s.StateProvider.Upsert(ctx, states.UpsertRequest{
 		Value: states.StateEntry{
-			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name,),
+			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name),
 			Body: model.SummaryResult{
 				Summary:        planState.Summary,
 				Generation:     planState.Deployment.Generation,
@@ -770,7 +772,6 @@ func (s *SolutionManager) SaveSummaryInfo(ctx context.Context, planState PlanSta
 	})
 	return err
 }
-
 
 func (s *SolutionManager) ConcludeSummary(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, namespace string) error {
 	return s.saveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateDone, namespace)
