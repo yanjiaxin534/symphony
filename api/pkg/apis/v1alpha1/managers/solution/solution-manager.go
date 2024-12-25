@@ -296,6 +296,79 @@ func (s *SolutionManager) cleanupHeartbeat(ctx context.Context, id string, names
 		Context: ctx,
 	})
 }
+func (s *SolutionManager) SaveSummaryInfo(ctx context.Context, planState v1alpha2.PlanState, state model.SummaryState) error {
+	_, err := s.StateProvider.Upsert(ctx, states.UpsertRequest{
+		Value: states.StateEntry{
+			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name),
+			Body: model.SummaryResult{
+				Summary:        planState.Summary,
+				Generation:     planState.Deployment.Generation,
+				Time:           time.Now().UTC(),
+				State:          state,
+				DeploymentHash: planState.Deployment.Hash,
+			},
+		},
+		Metadata: map[string]interface{}{
+			"namespace": planState.Namespace,
+			"group":     model.SolutionGroup,
+			"version":   "v1",
+			"resource":  Summary,
+		},
+	})
+	return err
+}
+
+// The deployment spec may have changed, so the previous target is not in the new deployment anymore
+func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState *SolutionManagerDeploymentState) (providers.IProvider, error) {
+	var override tgt.ITargetProvider
+	role := step.Role
+	if role == "container" {
+		role = "instance"
+	}
+	if v, ok := s.TargetProviders[role]; ok {
+		return v, nil
+	}
+	targetSpec := s.getTargetStateForStep(step, deployment, previousDesiredState)
+	provider, err := sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
+	if err != nil {
+		return nil, err
+	}
+	return provider, nil
+}
+
+func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.DeploymentPlan, model.DeploymentState, solution.SolutionManagerDeploymentState, error) {
+	log.InfoCtx(ctx, " begin to generate plan ")
+	previousDesiredState := s.getPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
+
+	var currentDesiredState, currentState model.DeploymentState
+	currentDesiredState, err := NewDeploymentState(deployment)
+	if err != nil {
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+	}
+	//todo:  change to async get be provider actor
+	currentState, _, err = s.Get(ctx, deployment, targetName)
+	if err != nil {
+		log.ErrorfCtx(ctx, " M (Solution): failed to get current state: %+v", err)
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+	}
+	desiredState := currentDesiredState
+	if previousDesiredState != nil {
+		desiredState = MergeDeploymentStates(&previousDesiredState.State, currentDesiredState)
+	}
+
+	if remove {
+		desiredState.MarkRemoveAll()
+	}
+
+	mergedState := MergeDeploymentStates(&currentState, desiredState)
+	plan, err := PlanForDeployment(deployment, mergedState)
+	if err != nil {
+		log.ErrorfCtx(ctx, " M (Solution): failed to plan for deployment: %+v", err)
+		return model.DeploymentPlan{}, model.DeploymentState{}, model.DeploymentState{}, err
+	}
+
+	return plan, mergedState, previousDesiredState, nil
+}
 
 func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.SummarySpec, error) {
 	s.KeyLockProvider.Lock(api_utils.GenerateKeyLockName(namespace, deployment.Instance.ObjectMeta.Name)) // && used as split character
@@ -418,7 +491,8 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 	}
 
 	col := api_utils.MergeCollection(deployment.Solution.Spec.Metadata, deployment.Instance.Spec.Metadata)
-	deployment.Instance.Spec.Metadata = col
+	dep := deployment
+	dep.Instance.Spec.Metadata = col
 	someStepsRan := false
 
 	targetResult := make(map[string]int)
@@ -521,7 +595,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 		// }
 
 		for i := 0; i < retryCount; i++ {
-			componentResults, stepError = (provider.(tgt.ITargetProvider)).Apply(ctx, deployment, step, deployment.IsDryRun)
+			componentResults, stepError = (provider.(tgt.ITargetProvider)).Apply(ctx, dep, step, deployment.IsDryRun)
 			if stepError == nil {
 				targetResult[step.Target] = 1
 				summary.AllAssignedDeployed = plannedCount == planSuccessCount
@@ -535,8 +609,8 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 			} else {
 				targetResult[step.Target] = 0
 				summary.AllAssignedDeployed = false
-				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[remove])
-				targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[remove], stepError.Error())
+				targetResultStatus := fmt.Sprintf("%s Failed", deploymentType)
+				targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentType, stepError.Error())
 				summary.UpdateTargetResult(step.Target, model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}) // TODO: this keeps only the last error on the target
 				time.Sleep(5 * time.Second)                                                                                                                                   //TODO: make this configurable?
 			}

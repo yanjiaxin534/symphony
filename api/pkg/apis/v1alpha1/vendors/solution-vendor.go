@@ -257,6 +257,31 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 			}
 		}
 		summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
+		// publish plan
+		plan, mergedState, previousDesiredState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		if error != nil {
+			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
+			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
+				State: v1alpha2.InternalError,
+				Body:  []byte(err.Error()),
+			})
+		}
+
+		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
+			Body: v1alpha2.JobData{
+				Id: deployment.JobID,
+				Body: v1alpha2.PlanEnvelope{
+					Plan:                 plan,
+					Deployment:           deployment,
+					MergedState:          mergedState,
+					PreviousDesiredState: previousDesiredState,
+					PlanId:               deployment.Instance.ObjectMeta.Name,
+					Remove:               delete == "true",
+					Namespace:            namespace,
+				},
+			},
+			Context: ctx,
+		})
 		data, _ := json.Marshal(summary)
 		if err != nil {
 			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - reconcile %s", err.Error())

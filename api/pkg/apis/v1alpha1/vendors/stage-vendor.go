@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/activations"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/campaigns"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/stage"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/stage/materialize"
@@ -35,6 +37,8 @@ type StageVendor struct {
 	StageManager       *stage.StageManager
 	CampaignsManager   *campaigns.CampaignsManager
 	ActivationsManager *activations.ActivationsManager
+	SolutionManager    *solution.SolutionManager
+	PlanManager        *PlanManager
 }
 
 func (s *StageVendor) GetInfo() vendors.VendorInfo {
@@ -47,6 +51,15 @@ func (s *StageVendor) GetInfo() vendors.VendorInfo {
 
 func (o *StageVendor) GetEndpoints() []v1alpha2.Endpoint {
 	return []v1alpha2.Endpoint{}
+}
+
+func NewPlanManager(timeout time.Duration) *PlanManager {
+	if timeout == 0 {
+		timeout = 50 * time.Second
+	}
+	return &PlanManager{
+		Timeout: timeout,
+	}
 }
 
 func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IManagerFactroy, providers map[string]map[string]providers.IProvider, pubsubProvider pubsub.IPubSubProvider) error {
@@ -64,6 +77,13 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		if c, ok := m.(*activations.ActivationsManager); ok {
 			s.ActivationsManager = c
 		}
+		if c, ok := m.(*solution.SolutionManager); ok {
+			s.SolutionManager = c
+		}
+	}
+	s.PlanManager = NewPlanManager(0)
+	if s.SolutionManager == nil {
+		return v1alpha2.NewCOAError(nil, "solution manager is not supplied", v1alpha2.MissingConfig)
 	}
 	if s.StageManager == nil {
 		return v1alpha2.NewCOAError(nil, "stage manager is not supplied", v1alpha2.MissingConfig)
@@ -344,6 +364,78 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			})
 			return nil
 		},
+	})
+	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			ctx := context.TODO()
+			if event.Context != nil {
+				ctx = event.Context
+			}
+			var planEnvelope PlanEnvelope
+			jData, _ := json.Marshal(event.Body)
+			err := json.Unmarshal(jData, &planEnvelope)
+			if err != nil {
+				log.ErrorCtx(ctx, "failed to unmarshal plan envelope :%v", err)
+				return err
+			}
+
+			log.InfoCtx(ctx, "deployment-plan: get jdata get from plan execute topic &%v", jData)
+			// // create summary
+			// summary := model.SummarySpec{
+			// 	TargetResults: make(map[string]model.TargetResultSpec),
+			// 	TargetCount:   len(planEnvelope.Deployment.Targets),
+			// 	JobID:         planEnvelope.Deployment.JobID,
+			// }
+
+			planState := &PlanState{
+				PlanId:     planEnvelope.PlanId,
+				StartTime:  time.Now(),
+				ExpireTime: time.Now().Add(s.PlanManager.Timeout),
+				TotalSteps: len(planEnvelope.Plan.Steps),
+				Summary: &model.SummarySpec{
+					TargetResults: make(map[string]model.TargetResultSpec),
+					TargetCount:   len(planEnvelope.Deployment.Targets),
+				},
+				PreviousDesiredState: planEnvelope.previousDesiredState,
+				MergedState:          planEnvelope.MergedState,
+				Deployment:           planEnvelope.Deployment,
+				Namespace:            planEnvelope.Namespace,
+			}
+			log.InfoCtx(ctx, "<<<< tstore plan id %s plan  %v", planEnvelope.PlanId, planState)
+			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
+			// get provider
+			for i, step := range planEnvelope.Plan.Steps {
+				stepId := fmt.Sprintf("%s-step-%d", planEnvelope.PlanId, i)
+				provider, err := s.SolutionManager.GetTargetProviderForStep(step, planEnvelope.Deployment, planEnvelope.previousDesiredState)
+				if err != nil {
+					planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
+					s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
+					log.ErrorfCtx(ctx, " M (Solution): failed to create provider: %+v", err)
+					// update summary
+					if err := s.SolutionManager.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
+						log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
+					}
+					return err
+				}
+				log.InfoCtx(ctx, "deployment-plan: publish deployment step id %s step %+v", stepId, step)
+				s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
+					Metadata: map[string]string{
+						"planId": planEnvelope.PlanId,
+						"stepId": stepId,
+					},
+					Body: StepEnvelope{
+						Step:       step,
+						Deployment: planEnvelope.Deployment,
+						Remove:     planEnvelope.Remove,
+						Namespace:  planEnvelope.Namespace,
+						Provider:   provider,
+					},
+					Context: ctx,
+				})
+			}
+			return nil
+		},
+		Group: "stage-vendor",
 	})
 	return nil
 }

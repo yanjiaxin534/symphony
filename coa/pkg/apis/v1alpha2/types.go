@@ -9,6 +9,12 @@ package v1alpha2
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
+
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
+	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 )
 
 // State represents a response state
@@ -380,3 +386,59 @@ const (
 	ErrorOutput              = "__error"
 	StateOutput              = "__state"
 )
+
+type PlanEnvelope struct {
+	Plan                 model.DeploymentPlan                     `json:"plan"`
+	Deployment           model.DeploymentSpec                     `json:"deployment"`
+	MergedState          model.DeploymentState                    `json:"mergedState"`
+	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previousDesiredState"`
+	Remove               bool                                     `json:"remove"`
+	Namespace            string                                   `json:"namespace"`
+	PlanId               string                                   `json:"planId"`
+	Generation           string                                   `json:"generation"` // deployment version
+	Hash                 string                                   `json:"hash"`
+}
+type PlanResult struct {
+	PlanState PlanState `json:"planstate"`
+	EndTime   time.Time `json:"endTime"`
+	Error     string    `json:"error,omitempty"`
+}
+type StepEnvelope struct {
+	Step       model.DeploymentStep `json:"step"`
+	Deployment model.DeploymentSpec `json:"deployment"`
+	Remove     bool                 `json:"remove"`
+	Namespace  string               `json:"Namespace"`
+	PlanId     string               `json:"planId"`
+	StepId     string               `json:"stepId"`
+	Provider   providers.IProvider  `json:"provider"`
+}
+
+type StepResult struct {
+	Step             model.DeploymentStep                 `json:"step"`
+	Success          bool                                 `json:"success"`
+	TargetResultSpec model.TargetResultSpec               `json:"targetResult"`
+	Components       map[string]model.ComponentResultSpec `json:"components"`
+	PlanId           string                               `json:"planId"`
+	StepId           string                               `json:"stepId"`
+	Timestamp        time.Time                            `json:"timestamp"`
+}
+
+type PlanState struct {
+	PlanId               string                                   `json:"planId"`
+	StartTime            time.Time                                `json:"startTime"`
+	ExpireTime           time.Time                                `json:"expireTime"`
+	TotalSteps           int                                      `json:"totalSteps"`
+	CompletedSteps       int                                      `json:"completedSteps"`
+	Summary              *model.SummarySpec                       `json:"summary"`
+	MergedState          model.DeploymentState                    `json:"mergedState"`
+	Deployment           model.DeploymentSpec                     `json:"deployment"`
+	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
+	Status               string                                   `json:"status"`
+	Namespace            string                                   `json:"namespace"`
+	lock                 sync.Mutex
+}
+
+var deploymentTypeMap = map[bool]string{
+	true:  DeploymentType_Delete,
+	false: DeploymentType_Update,
+}
