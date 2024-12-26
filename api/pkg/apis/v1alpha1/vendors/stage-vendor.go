@@ -423,6 +423,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 					return err
 				}
 				log.InfoCtx(ctx, "deployment-plan: publish deployment step id %s step %+v", stepId, step)
+				ctxsub := context.TODO()
 				s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
 					Metadata: map[string]string{
 						"planId": planEnvelope.PlanId,
@@ -435,7 +436,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 						Namespace:  planEnvelope.Namespace,
 						Provider:   provider,
 					},
-					Context: ctx,
+					Context: ctxsub,
 				})
 			}
 			return nil
