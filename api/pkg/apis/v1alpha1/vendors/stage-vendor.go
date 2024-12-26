@@ -450,30 +450,9 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 						Namespace:  planEnvelope.Namespace,
 						Provider:   provider,
 					},
-					Context: ctx,
 				})
 			}
 			return nil
-			// // get plan
-			// // get next step
-			// // execute step (later will publish a topic to redis and provider actor execute details)
-			// // publish to result to topic
-			// ctx := context.TODO()
-			// if event.Context != nil {
-			// 	ctx = event.Context
-			// }
-			// // Unwrap data package from event body
-			// jData, _ := json.Marshal(event.Body)
-			// log.InfoCtx(ctx, "<<<< test deployment-plan get topic info %s", jData)
-			// if !jData.De
-			// // get data formate and set it
-			// // var job v1alpha2.JobData
-			// // json.Unmarshal(jData, &job)
-			// s.Vendor.Context.Publish("report", v1alpha2.Event{
-			// 	Body:    jData,
-			// 	Context: ctx,
-			// })
-			// return nil
 		},
 		Group: "stage-vendor",
 	})
