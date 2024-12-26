@@ -131,11 +131,12 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			// get data
 			var stepEnvelope StepEnvelope
 			jData, _ := json.Marshal(event.Body)
-			log.InfoCtx(ctx, "deployment-step get data  %v ", jData)
+			log.InfoCtx(ctx, "deployment-step get data  ")
 			if err := json.Unmarshal(jData, &stepEnvelope); err != nil {
 				log.ErrorfCtx(ctx, "V (Federation): failed to unmarshal step envelope: %v", err)
 				return err
 			}
+			log.InfoCtx(ctx, "get jData %+v", stepEnvelope)
 			// planState := stepEnvelope.PlanState
 			// get provider todo : is dry run
 			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
