@@ -463,7 +463,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorCtx(ctx, "stage plan %s not fount ", planId)
 				return fmt.Errorf("plan not fount %s", planId)
 			}
-			planState := planStateObj.(PlanState)
+			planState := planStateObj.(*PlanState)
 
 			// update plan state
 			log.InfoCtx(ctx, "update plan state ")
@@ -471,15 +471,6 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorCtx(ctx, " failed to update plan state %v", err)
 				return err
 			}
-
-			// if plan is complete -> publish plan result
-
-			// if event.Context != nil {
-			// 	ctx = event.Context
-			// }
-			// // Unwrap data package from event body
-			// jData, _ := json.Marshal(event.Body)
-			// log.InfoCtx(ctx, "<<<< test deployment-plan-result get topic info %s", jData)
 			return nil
 		},
 		Group: "stage-vendor",
@@ -488,7 +479,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 	return nil
 }
 
-func (s *StageVendor) SaveSummaryInfo(ctx context.Context, planState PlanState, state model.SummaryState) error {
+func (s *StageVendor) SaveSummaryInfo(ctx context.Context, planState *PlanState, state model.SummaryState) error {
+	log.InfoCtx(ctx, "save summary info plan state %+v, summary state %+v", planState, state)
 	_, err := s.SolutionManager.StateProvider.Upsert(ctx, states.UpsertRequest{
 		Value: states.StateEntry{
 			ID: fmt.Sprintf("%s-%s", "summary", planState.Deployment.Instance.ObjectMeta.Name),
@@ -510,7 +502,7 @@ func (s *StageVendor) SaveSummaryInfo(ctx context.Context, planState PlanState, 
 	return err
 }
 
-func (s *StageVendor) updatePlanState(ctx context.Context, planState PlanState, stepResult StepResult) error {
+func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState, stepResult StepResult) error {
 	log.InfoCtx(ctx, "update plan state %v with step result %v", planState, stepResult)
 	if planState.IsExpired() {
 		if err := s.handlePlanTimeout(ctx, planState); err != nil {
@@ -590,7 +582,7 @@ func (pm *PlanManager) CreatePlan(planEnvelope PlanEnvelope) *PlanState {
 	return planState
 }
 
-func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState PlanState) error {
+func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState *PlanState) error {
 	log.InfofCtx(ctx, "handle plan completetion:begin to handle plan completetion %v", planState)
 	if err := s.SaveSummaryInfo(ctx, planState, model.SummaryStateDone); err != nil {
 		log.ErrorfCtx(ctx, "Failed to save summary progress done: %v", err)
@@ -605,7 +597,7 @@ func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState Plan
 	log.InfofCtx(ctx, "handle plan completetion: update summary done %v", planState)
 	return nil
 }
-func (s *StageVendor) handlePlanTimeout(ctx context.Context, planState PlanState) error {
+func (s *StageVendor) handlePlanTimeout(ctx context.Context, planState *PlanState) error {
 	planState.Summary.SummaryMessage = fmt.Sprintf("plan execution time out after complete %d/%d steps", planState.CompletedSteps, planState.TotalSteps)
 
 	if err := s.SaveSummaryInfo(ctx, planState, model.SummaryStateDone); err != nil {
