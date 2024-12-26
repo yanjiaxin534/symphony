@@ -320,6 +320,8 @@ func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.Dep
 // The deployment spec may have changed, so the previous target is not in the new deployment anymore
 func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState *SolutionManagerDeploymentState) (providers.IProvider, error) {
 	var override tgt.ITargetProvider
+	log.Info("get step %+v", step)
+	log.Info("get step role %s", step.Role)
 	role := step.Role
 	if role == "container" {
 		role = "instance"
