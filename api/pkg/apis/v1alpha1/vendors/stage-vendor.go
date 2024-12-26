@@ -377,9 +377,10 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
-			// if event.Context != nil {
-			// 	ctx = event.Context
-			// }
+			if event.Context != nil {
+				ctx = event.Context
+			}
+
 			log.InfoCtx(ctx, "begin to execute deployment-plan")
 			var planEnvelope PlanEnvelope
 			jData, _ := json.Marshal(event.Body)
@@ -423,7 +424,20 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 					return err
 				}
 				log.InfoCtx(ctx, "deployment-plan: publish deployment step id %s step %+v", stepId, step)
-				ctxsub := context.TODO()
+				log.InfoCtx(ctx, " event %+v ", v1alpha2.Event{
+					Metadata: map[string]string{
+						"planId": planEnvelope.PlanId,
+						"stepId": stepId,
+					},
+					Body: StepEnvelope{
+						Step:       step,
+						Deployment: planEnvelope.Deployment,
+						Remove:     planEnvelope.Remove,
+						Namespace:  planEnvelope.Namespace,
+						Provider:   provider,
+					},
+					Context: ctx,
+				})
 				s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
 					Metadata: map[string]string{
 						"planId": planEnvelope.PlanId,
@@ -436,7 +450,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 						Namespace:  planEnvelope.Namespace,
 						Provider:   provider,
 					},
-					Context: ctxsub,
+					Context: ctx,
 				})
 			}
 			return nil
