@@ -396,8 +396,11 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				ExpireTime: time.Now().Add(s.PlanManager.Timeout),
 				TotalSteps: len(planEnvelope.Plan.Steps),
 				Summary: model.SummarySpec{
-					TargetResults: make(map[string]model.TargetResultSpec),
-					TargetCount:   len(planEnvelope.Deployment.Targets),
+					TargetResults:       make(map[string]model.TargetResultSpec),
+					TargetCount:         len(planEnvelope.Deployment.Targets),
+					SuccessCount:        0,
+					AllAssignedDeployed: false,
+					JobID:               planEnvelope.Deployment.JobID,
 				},
 				PreviousDesiredState: planEnvelope.PreviousDesiredState,
 				MergedState:          planEnvelope.MergedState,
@@ -531,6 +534,7 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 		log.InfoCtx(ctx, "plan state is completed %v ", planState)
 		allSuccess := planState.Summary.SuccessCount == planState.TotalSteps
 		planState.Summary.AllAssignedDeployed = allSuccess
+		log.InfofCtx(ctx, "summary info %+v all assign %s", planState.Summary, planState.Summary.AllAssignedDeployed)
 		if !allSuccess {
 			planState.Status = "failed"
 		}
@@ -571,8 +575,11 @@ func (pm *PlanManager) CreatePlan(planEnvelope PlanEnvelope) *PlanState {
 		ExpireTime: time.Now().Add(pm.Timeout),
 		TotalSteps: len(planEnvelope.Plan.Steps),
 		Summary: model.SummarySpec{
-			TargetResults: make(map[string]model.TargetResultSpec),
-			TargetCount:   len(planEnvelope.Deployment.Targets),
+			TargetResults:       make(map[string]model.TargetResultSpec),
+			TargetCount:         len(planEnvelope.Deployment.Targets),
+			SuccessCount:        0,
+			AllAssignedDeployed: false,
+			JobID:               planEnvelope.Deployment.JobID,
 		},
 		MergedState: planEnvelope.MergedState,
 		Deployment:  planEnvelope.Deployment,
@@ -588,7 +595,7 @@ func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState *Pla
 		log.ErrorfCtx(ctx, "Failed to save summary progress done: %v", err)
 		return err
 	}
-	log.InfofCtx(ctx, "handle plan completetion: begin to handle plan completetion ")
+	log.InfofCtx(ctx, "handle plan completetion: begin to handle plan completetion %+v ", planState.Summary)
 	// update summary
 	if err := s.SolutionManager.ConcludeSummary(ctx, planState.Deployment.Instance.ObjectMeta.Name, planState.Deployment.Generation, planState.Deployment.Hash, planState.Summary, planState.Namespace); err != nil {
 		log.ErrorfCtx(ctx, "handle plan completetion: failed to conclude summary: %v", err)
