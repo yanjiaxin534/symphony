@@ -390,7 +390,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			}
 
 			log.InfoCtx(ctx, "deployment-plan: get jdata get from plan execute topic &%v", jData)
-			planState := PlanState{
+			planState := &PlanState{
 				PlanId:     planEnvelope.PlanId,
 				StartTime:  time.Now(),
 				ExpireTime: time.Now().Add(s.PlanManager.Timeout),
