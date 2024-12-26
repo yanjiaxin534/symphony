@@ -41,9 +41,9 @@ type PlanEnvelope struct {
 	Hash                 string                                   `json:"hash"`
 }
 type PlanResult struct {
-	PlanState PlanState `json:"planstate"`
-	EndTime   time.Time `json:"endTime"`
-	Error     string    `json:"error,omitempty"`
+	PlanState *PlanState `json:"planstate"`
+	EndTime   time.Time  `json:"endTime"`
+	Error     string     `json:"error,omitempty"`
 }
 type StepEnvelope struct {
 	Step       model.DeploymentStep `json:"step"`
@@ -83,7 +83,6 @@ type PlanState struct {
 	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
 	Status               string                                   `json:"status"`
 	Namespace            string                                   `json:"namespace"`
-	lock                 sync.Mutex
 }
 
 var deploymentTypeMap = map[bool]string{
