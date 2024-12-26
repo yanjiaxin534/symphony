@@ -282,7 +282,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				Body:  []byte(err.Error()),
 			})
 		}
-
+		log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
 		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
 			Body: v1alpha2.JobData{
 				Id: deployment.JobID,

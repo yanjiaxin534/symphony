@@ -369,13 +369,14 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			return nil
 		},
 	})
-
+	log.Info("begin to subscribe topic deployment-plan")
 	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
 			if event.Context != nil {
 				ctx = event.Context
 			}
+			log.InfoCtx(ctx, "begin to execute deployment-plan")
 			var planEnvelope PlanEnvelope
 			jData, _ := json.Marshal(event.Body)
 			err := json.Unmarshal(jData, &planEnvelope)
