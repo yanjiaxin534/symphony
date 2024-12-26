@@ -52,7 +52,7 @@ type StepEnvelope struct {
 	Namespace  string               `json:"Namespace"`
 	PlanId     string               `json:"planId"`
 	StepId     string               `json:"stepId"`
-	PlanState  PlanState            `json:"planState"`
+	PlanState  *PlanState           `json:"planState"`
 	// Provider   providers.IProvider  `json:"provider"`
 }
 
