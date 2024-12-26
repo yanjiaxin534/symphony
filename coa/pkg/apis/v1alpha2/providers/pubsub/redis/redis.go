@@ -170,22 +170,10 @@ func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 
 func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error {
 	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message topic %s for topic %+v", topic, event)
-	eventCopy := struct {
-		Metadata map[string]string `json:"metadata"`
-		Body     interface{}       `json:"body"`
-	}{
-		Metadata: event.Metadata,
-		Body:     event.Body,
-	}
 
-	data, err := json.Marshal(eventCopy)
-	if err != nil {
-		mLog.Errorf("  P (Redis PubSub) : failed to serialize event %v", err)
-		return v1alpha2.NewCOAError(err, "failed to serialize event", v1alpha2.InternalError)
-	}
 	messageId, err := i.Client.XAdd(i.Ctx, &redis.XAddArgs{
 		Stream: topic,
-		Values: map[string]interface{}{"data": data},
+		Values: map[string]interface{}{"data": event},
 	}).Result()
 
 	if err != nil {
