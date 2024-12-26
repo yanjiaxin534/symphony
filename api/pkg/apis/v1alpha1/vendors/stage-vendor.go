@@ -85,8 +85,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		}
 		if c, ok := m.(*solution.SolutionManager); ok {
 			s.SolutionManager = c
-		}else{
-			log.Info( "some error %+v", m)
+		} else {
+			log.Info("some error %+v", m)
 		}
 	}
 	log.Info("s<<<<manager %+v", s.Managers)
@@ -377,9 +377,9 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
-			if event.Context != nil {
-				ctx = event.Context
-			}
+			// if event.Context != nil {
+			// 	ctx = event.Context
+			// }
 			log.InfoCtx(ctx, "begin to execute deployment-plan")
 			var planEnvelope PlanEnvelope
 			jData, _ := json.Marshal(event.Body)
