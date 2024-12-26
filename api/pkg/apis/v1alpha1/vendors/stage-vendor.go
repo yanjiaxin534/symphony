@@ -87,6 +87,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			s.SolutionManager = c
 		}
 	}
+	log.Info("s<<<<manager %+v", s.Managers)
+	log.Info("s<<<<manager %+v", s)
 	if s.StageManager == nil {
 		return v1alpha2.NewCOAError(nil, "stage manager is not supplied", v1alpha2.MissingConfig)
 	}
