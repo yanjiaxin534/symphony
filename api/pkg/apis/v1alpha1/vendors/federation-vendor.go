@@ -123,9 +123,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 	})
 	f.Vendor.Context.Subscribe("deployment-step", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
-			ctx := event.Context
-			if ctx == nil {
-				ctx = context.TODO()
+			ctx := context.TODO()
+			if event.Context != nil {
+				ctx = event.Context
 			}
 
 			// get data
@@ -136,10 +136,26 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				log.ErrorfCtx(ctx, "V (Federation): failed to unmarshal step envelope: %v", err)
 				return err
 			}
-
+			// planState := stepEnvelope.PlanState
 			// get provider todo : is dry run
+			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
+			if err != nil {
+				// planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
+				// s.PlanManager.Plans.Store(stepEnvelope.PlanId, planState)
+				// log.ErrorfCtx(ctx, " M (Solution): failed to create provider: %+v", err)
+				// // update summary
+				// if err := f.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
+
+				// }
+				log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
+				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+				targetResultMessage := fmt.Sprintf("failed to create provider %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], err)
+				targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
+				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, make(map[string]model.ComponentResultSpec))
+				return err
+			}
 			log.InfoCtx(ctx, "deployment-step begin to apply step ")
-			componentResults, stepError := (stepEnvelope.Provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
+			componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
 			log.InfoCtx(ctx, "need to deploy a deployment")
 
 			if stepError != nil {
@@ -205,6 +221,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 		IsSelf:     true,
 	})
 }
+
 func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, spec model.TargetResultSpec, components map[string]model.ComponentResultSpec) error {
 	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
 		Metadata: map[string]string{

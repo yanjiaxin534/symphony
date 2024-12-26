@@ -17,11 +17,9 @@ import (
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/stage"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
-	sp "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/stage/materialize"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/stage/mock"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/stage/wait"
-	tgt "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
 	api_utils "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2"
@@ -410,20 +408,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
 			// get provider
 			for i, step := range planEnvelope.Plan.Steps {
-
 				stepId := fmt.Sprintf("%s-step-%d", planEnvelope.PlanId, i)
-				provider, err := s.GetTargetProviderForStep(step, planEnvelope.Deployment, planEnvelope.PreviousDesiredState)
-				if err != nil {
-					planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
-					s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
-					log.ErrorfCtx(ctx, " M (Solution): failed to create provider: %+v", err)
-					// update summary
-					if err := s.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
-						log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
-					}
-					return err
-				}
-				log.InfoCtx(ctx, "deployment-plan: publish deployment step id %s step %+v", stepId, step)
+				log.InfoCtx(ctx, "deployment-plan: publish deployment step id2 %s step %+v", stepId, step)
 				log.InfoCtx(ctx, " event %+v ", v1alpha2.Event{
 					Metadata: map[string]string{
 						"planId": planEnvelope.PlanId,
@@ -434,21 +420,18 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 						Deployment: planEnvelope.Deployment,
 						Remove:     planEnvelope.Remove,
 						Namespace:  planEnvelope.Namespace,
-						Provider:   provider,
 					},
 					Context: ctx,
 				})
 				s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
-					Metadata: map[string]string{
-						"planId": planEnvelope.PlanId,
-						"stepId": stepId,
-					},
 					Body: StepEnvelope{
 						Step:       step,
 						Deployment: planEnvelope.Deployment,
 						Remove:     planEnvelope.Remove,
 						Namespace:  planEnvelope.Namespace,
-						Provider:   provider,
+						PlanId:     planEnvelope.PlanId,
+						StepId:     stepId,
+						PlanState:  planState,
 					},
 				})
 			}
@@ -527,23 +510,6 @@ func (s *StageVendor) SaveSummaryInfo(ctx context.Context, planState PlanState, 
 	return err
 }
 
-// The deployment spec may have changed, so the previous target is not in the new deployment anymore
-func (s *StageVendor) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState *solution.SolutionManagerDeploymentState) (providers.IProvider, error) {
-	var override tgt.ITargetProvider
-	role := step.Role
-	if role == "container" {
-		role = "instance"
-	}
-	if v, ok := s.SolutionManager.TargetProviders[role]; ok {
-		return v, nil
-	}
-	targetSpec := s.SolutionManager.GetTargetStateForStep(step, deployment, previousDesiredState)
-	provider, err := sp.CreateProviderForTargetRole(s.SolutionManager.Context, step.Role, targetSpec, override)
-	if err != nil {
-		return nil, err
-	}
-	return provider, nil
-}
 func (s *StageVendor) updatePlanState(ctx context.Context, planState PlanState, stepResult StepResult) error {
 	log.InfoCtx(ctx, "update plan state %v with step result %v", planState, stepResult)
 	if planState.IsExpired() {
