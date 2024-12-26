@@ -284,17 +284,17 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		}
 		log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
 		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
-			Body: v1alpha2.JobData{
-				Id: deployment.JobID,
-				Body: PlanEnvelope{
-					Plan:                 plan,
-					Deployment:           deployment,
-					MergedState:          mergedState,
-					PreviousDesiredState: previousDesiredState,
-					PlanId:               deployment.Instance.ObjectMeta.Name,
-					Remove:               delete == "true",
-					Namespace:            namespace,
-				},
+			Metadata: map[string]string{
+				"Id": deployment.JobID,
+			},
+			Body: PlanEnvelope{
+				Plan:                 plan,
+				Deployment:           deployment,
+				MergedState:          mergedState,
+				PreviousDesiredState: previousDesiredState,
+				PlanId:               deployment.Instance.ObjectMeta.Name,
+				Remove:               delete == "true",
+				Namespace:            namespace,
 			},
 			Context: ctx,
 		})
