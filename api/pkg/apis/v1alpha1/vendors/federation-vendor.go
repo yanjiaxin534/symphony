@@ -152,7 +152,6 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				targetResultMessage := fmt.Sprintf("failed to create provider %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], err)
 				targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
 				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, make(map[string]model.ComponentResultSpec))
-				return err
 			}
 			log.InfoCtx(ctx, "deployment-step begin to apply step ")
 			componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
