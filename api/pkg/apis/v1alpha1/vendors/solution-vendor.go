@@ -249,8 +249,9 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 	}
 	switch request.Method {
 	case fasthttp.MethodPost:
-		ctx, span := observability.StartSpan("onReconcile-POST", rContext, nil)
-		defer span.End()
+		// ctx, span := observability.StartSpan("onReconcile-POST", rContext, nil)
+		// defer span.End()
+		ctx := context.TODO()
 		var deployment model.DeploymentSpec
 		// get deployment
 		err := json.Unmarshal(request.Body, &deployment)
