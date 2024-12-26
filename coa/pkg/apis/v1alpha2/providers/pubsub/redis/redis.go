@@ -169,6 +169,7 @@ func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 }
 
 func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error {
+	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message topic %s for topic %+v", topic, event)
 	messageId, err := i.Client.XAdd(i.Ctx, &redis.XAddArgs{
 		Stream: topic,
 		Values: map[string]interface{}{"data": event},
