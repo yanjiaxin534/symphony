@@ -317,6 +317,24 @@ func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.Dep
 	return plan, mergedState, nil
 }
 
+// The deployment spec may have changed, so the previous target is not in the new deployment anymore
+func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState *SolutionManagerDeploymentState) (providers.IProvider, error) {
+	var override tgt.ITargetProvider
+	role := step.Role
+	if role == "container" {
+		role = "instance"
+	}
+	if v, ok := s.TargetProviders[role]; ok {
+		return v, nil
+	}
+	targetSpec := s.GetTargetStateForStep(step, deployment, previousDesiredState)
+	provider, err := sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
+	if err != nil {
+		return nil, err
+	}
+	return provider, nil
+}
+
 func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.DeploymentSpec, remove bool, namespace string, targetName string) (model.SummarySpec, error) {
 	lock.Lock()
 	defer lock.Unlock()

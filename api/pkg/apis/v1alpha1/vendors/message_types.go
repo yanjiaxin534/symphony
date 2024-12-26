@@ -12,7 +12,6 @@ import (
 
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
-	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 )
 
 const (
@@ -53,7 +52,8 @@ type StepEnvelope struct {
 	Namespace  string               `json:"Namespace"`
 	PlanId     string               `json:"planId"`
 	StepId     string               `json:"stepId"`
-	Provider   providers.IProvider  `json:"provider"`
+	PlanState  PlanState            `json:"planState"`
+	// Provider   providers.IProvider  `json:"provider"`
 }
 
 type PlanManager struct {
