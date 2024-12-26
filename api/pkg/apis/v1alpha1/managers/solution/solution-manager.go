@@ -326,9 +326,6 @@ func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, de
 	if role == "container" {
 		role = "instance"
 	}
-	if v, ok := s.TargetProviders[role]; ok {
-		return v, nil
-	}
 	targetSpec := s.GetTargetStateForStep(step, deployment, previousDesiredState)
 	provider, err := sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
 	if err != nil {
