@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	DefaultPlanTimeout = 5 * time.Second
+	DefaultPlanTimeout = 100 * time.Second
 )
 
 var sLog = logger.NewLogger("coa.runtime")
@@ -85,6 +85,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		}
 		if c, ok := m.(*solution.SolutionManager); ok {
 			s.SolutionManager = c
+		}else{
+			log.Info( "some error %+v", m)
 		}
 	}
 	log.Info("s<<<<manager %+v", s.Managers)
@@ -381,6 +383,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			log.InfoCtx(ctx, "begin to execute deployment-plan")
 			var planEnvelope PlanEnvelope
 			jData, _ := json.Marshal(event.Body)
+			log.InfoCtx(ctx, "deployment-plan: get jdata get from plan execute topic jdata &%v", jData)
 			err := json.Unmarshal(jData, &planEnvelope)
 			if err != nil {
 				log.ErrorCtx(ctx, "failed to unmarshal plan envelope :%v", err)
@@ -388,13 +391,6 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			}
 
 			log.InfoCtx(ctx, "deployment-plan: get jdata get from plan execute topic &%v", jData)
-			// // create summary
-			// summary := model.SummarySpec{
-			// 	TargetResults: make(map[string]model.TargetResultSpec),
-			// 	TargetCount:   len(planEnvelope.Deployment.Targets),
-			// 	JobID:         planEnvelope.Deployment.JobID,
-			// }
-
 			planState := PlanState{
 				PlanId:     planEnvelope.PlanId,
 				StartTime:  time.Now(),
@@ -413,6 +409,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
 			// get provider
 			for i, step := range planEnvelope.Plan.Steps {
+
 				stepId := fmt.Sprintf("%s-step-%d", planEnvelope.PlanId, i)
 				provider, err := s.GetTargetProviderForStep(step, planEnvelope.Deployment, planEnvelope.PreviousDesiredState)
 				if err != nil {
