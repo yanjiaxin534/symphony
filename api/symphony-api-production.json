@@ -116,8 +116,7 @@
               "k8s-state": {
                 "type": "providers.state.k8s",
                 "config": {
-                  "inCluster": false,
-                  "configType": "path"
+                  "inCluster": true
                 }
               }
             }
