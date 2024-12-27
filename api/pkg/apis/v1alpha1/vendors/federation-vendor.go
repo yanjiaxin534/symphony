@@ -137,7 +137,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			}
 			var job Job
 			jData, _ := json.Marshal(event.Body)
-			log.InfofCtx(ctx, " subscribe step-result %v", jData)
+			log.InfofCtx(ctx, " get job subscribe step-result %v", jData)
 			if err := json.Unmarshal(jData, &job); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
 				return err
@@ -157,7 +157,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			// f.StagingManager.QueueProvider.Enqueue()
 			//
 			components, err = (provider.(tgt.ITargetProvider)).Get(ctx, deployment, job.Components)
-
+			log.InfoCtx(ctx, "get components %v", components)
 			getResult := model.DeploymentState{
 				Components:      components,
 				TargetComponent: make(map[string]string),

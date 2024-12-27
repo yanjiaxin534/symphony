@@ -500,7 +500,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		},
 		Group: "stage-vendor",
 	})
-	s.Vendor.Context.Subscribe("get-job", v1alpha2.EventHandler{
+	s.Vendor.Context.Subscribe("get-job-result", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := event.Context
 			if ctx == nil {
@@ -534,8 +534,12 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			s.PlanManager.Plans.Store(ctx, planState)
 
 			if s.isPhaseComplete(planState) {
+				log.InfoCtx(ctx, "phase is completed %v", planState)
 				s.handlePhaseCompletetion(ctx, planState)
+			} else {
+				log.InfoCtx(ctx, "phase is not completed %v", planState)
 			}
+
 			return nil
 		},
 		Group: "stage-vendor",
