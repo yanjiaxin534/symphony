@@ -129,6 +129,55 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			return nil
 		},
 	})
+	f.Vendor.Context.Subscribe("get-job", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			ctx := event.Context
+			if ctx == nil {
+				ctx = context.TODO()
+			}
+			var job Job
+			jData, _ := json.Marshal(event.Body)
+			log.InfofCtx(ctx, " subscribe step-result %v", jData)
+			if err := json.Unmarshal(jData, &job); err != nil {
+				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
+				return err
+			}
+			// get components
+			deployment := job.Deployment
+			deployment.ActiveTarget = job.Target
+
+			provider, err := f.SolutionManager.GetTargetProviderForStep(job.Target, job.Role, job.Deployment, job.PreviousDesiredState)
+			if err != nil {
+				log.ErrorfCtx(ctx, "failed to create target provider : %v", err)
+				return err
+			}
+			var components []model.ComponentSpec
+			// remote for queue then return -> get then dequeue -> publish result
+
+			// f.StagingManager.QueueProvider.Enqueue()
+			//
+			components, err = (provider.(tgt.ITargetProvider)).Get(ctx, deployment, job.Components)
+
+			getResult := model.DeploymentState{
+				Components:      components,
+				TargetComponent: make(map[string]string),
+			}
+			for _, c := range components {
+				key := fmt.Sprintf("%s::%s", c.Name, job.Target)
+				role := c.Type
+				if role == "" {
+					role = "container"
+				}
+				getResult.TargetComponent[key] = role
+			}
+			job.Result = getResult
+			return f.Vendor.Context.Publish("get-job-result", v1alpha2.Event{
+				Body:    job,
+				Context: ctx,
+			})
+		},
+		Group: "federation-vendor",
+	})
 	f.Vendor.Context.Subscribe("deployment-step", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()
@@ -147,7 +196,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			log.InfoCtx(ctx, "get jData %+v", stepEnvelope)
 			// planState := stepEnvelope.PlanState
 			// get provider todo : is dry run
-			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
+			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
 			if err != nil {
 				// planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
 				// s.PlanManager.Plans.Store(stepEnvelope.PlanId, planState)

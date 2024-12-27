@@ -14,10 +14,13 @@ import (
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 )
 
-const (
-	SYMPHONY_AGENT string = "/symphony-agent:"
-	ENV_NAME       string = "SYMPHONY_AGENT_ADDRESS"
+type JobPhase string
 
+const (
+	SYMPHONY_AGENT string   = "/symphony-agent:"
+	ENV_NAME       string   = "SYMPHONY_AGENT_ADDRESS"
+	PhaseGet       JobPhase = "get"
+	PhaseApply     JobPhase = "apply"
 	// DeploymentType_Update indicates the type of deployment is Update. This is
 	// to give a deployment status on Symphony Target deployment.
 	DeploymentType_Update string = "Target Update"
@@ -60,7 +63,11 @@ type PlanManager struct {
 	Plans   sync.Map // map[string] *Planstate
 	Timeout time.Duration
 }
-
+type AgentRequest struct {
+	OperationID string `json:"operationID"`
+	Provider    string `json:"provider"`
+	Action      string `json:"action"`
+}
 type StepResult struct {
 	Step             model.DeploymentStep                 `json:"step"`
 	Success          bool                                 `json:"success"`
@@ -69,10 +76,26 @@ type StepResult struct {
 	PlanId           string                               `json:"planId"`
 	StepId           string                               `json:"stepId"`
 	Timestamp        time.Time                            `json:"timestamp"`
+	ApplyResult      interface{}                          `json:"applyresult"`
+	GetResult        interface{}                          `json:"getresult"`
+}
+type ProviderGetRequest struct {
+	AgentRequest
+	Deployment model.DeploymentSpec  `json:"deployment"`
+	References []model.ComponentStep `json:"references"`
+}
+
+type ProviderApplyRequest struct {
+	AgentRequest
+	Deployment model.DeploymentSpec `json:"deployment"`
+	Step       model.DeploymentStep `json:"step"`
+	IsDryRun   bool                 `json:"isDryRun,omitempty"`
 }
 
 type PlanState struct {
-	PlanId               string                                   `json:"planId"`
+	ID                   string `json:"opeateionId"`
+	PlanId               string `json:"planId"`
+	Phase                JobPhase
 	StartTime            time.Time                                `json:"startTime"`
 	ExpireTime           time.Time                                `json:"expireTime"`
 	TotalSteps           int                                      `json:"totalSteps"`
@@ -83,6 +106,43 @@ type PlanState struct {
 	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
 	Status               string                                   `json:"status"`
 	Namespace            string                                   `json:"namespace"`
+	delete               bool
+	Steps                []StepState
+}
+type JobState string
+
+const (
+	JobStateQueued    JobState = "queued"
+	JobStateRunning   JobState = "running"
+	JobStateCompleted JobState = "completed"
+	JobStateFailed    JobState = "Failed"
+)
+
+type Job struct {
+	ID                   string
+	Phase                JobPhase
+	PlanID               string
+	StepIndex            int
+	Target               string
+	Role                 string
+	Deployment           model.DeploymentSpec
+	Components           []model.ComponentStep
+	State                JobState
+	Result               interface{}
+	Error                string
+	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
+	CreateTime           time.Time
+	UpdateTime           time.Time
+}
+type StepState struct {
+	Index       int
+	Target      string
+	Role        string
+	Components  []model.ComponentStep
+	State       string
+	GetResult   model.DeploymentState
+	ApplyResult interface{}
+	Error       string
 }
 
 var deploymentTypeMap = map[bool]string{

@@ -371,6 +371,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			return nil
 		},
 	})
+
 	log.Info("begin to subscribe topic deployment-plan")
 	s.Vendor.Context.Subscribe("deployment-plan", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
@@ -478,10 +479,149 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		},
 		Group: "stage-vendor",
 	})
+	s.Vendor.Context.Subscribe("publish-state", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			// subscribe result and save summary
+			//publish result to solution vendor
+			ctx := event.Context
+			if ctx == nil {
+				ctx = context.TODO()
+			}
 
+			var planState PlanState
+			jData, _ := json.Marshal(event.Body)
+			log.InfofCtx(ctx, " subscribe step-result %v", jData)
+			if err := json.Unmarshal(jData, &planState); err != nil {
+				log.ErrorfCtx(ctx, " fail to unmarshal planState %v", err)
+				return err
+			}
+			s.PlanManager.Plans.Store(planState.ID, planState)
+			return nil
+		},
+		Group: "stage-vendor",
+	})
+	s.Vendor.Context.Subscribe("get-job", v1alpha2.EventHandler{
+		Handler: func(topic string, event v1alpha2.Event) error {
+			ctx := event.Context
+			if ctx == nil {
+				ctx = context.TODO()
+			}
+			var result Job
+			jData, _ := json.Marshal(event.Body)
+			log.InfofCtx(ctx, " subscribe get-job-result %v", jData)
+			if err := json.Unmarshal(jData, &result); err != nil {
+				log.ErrorfCtx(ctx, " fail to unmarshal job result %v", err)
+				return err
+			}
+
+			planStateObj, exists := s.PlanManager.Plans.Load(result.PlanID)
+			if !exists {
+				log.ErrorCtx(ctx, "stage plan %s not fount ", result.PlanID)
+				return fmt.Errorf("plan not fount %s", result.PlanID)
+			}
+			planState := planStateObj.(*PlanState)
+
+			step := &planState.Steps[result.StepIndex]
+			step.State = string(result.State)
+			switch result.Phase {
+			case PhaseGet:
+				if getState, ok := result.Result.(model.DeploymentState); ok {
+					step.GetResult = getState
+					log.InfoCtx(ctx, "update get result for step %d in plan %s ", result.StepIndex, result.PlanID)
+				}
+			}
+
+			s.PlanManager.Plans.Store(ctx, planState)
+
+			if s.isPhaseComplete(planState) {
+				s.handlePhaseCompletetion(ctx, planState)
+			}
+			return nil
+		},
+		Group: "stage-vendor",
+	})
 	return nil
 }
 
+func (s *StageVendor) handlePhaseCompletetion(ctx context.Context, planState *PlanState) {
+	switch planState.Phase {
+	case PhaseGet:
+		// collect result
+		currentState := model.DeploymentState{}
+		for _, step := range planState.Steps {
+			currentState = solution.MergeDeploymentStates(&step.GetResult, currentState)
+		}
+		previousDesiredState := s.SolutionManager.GetPreviousState(ctx, planState.Deployment.Instance.ObjectMeta.Name, planState.Namespace)
+
+		var currentDesiredState model.DeploymentState
+		currentDesiredState, err := solution.NewDeploymentState(planState.Deployment)
+		if err != nil {
+			return
+		}
+		//todo:  change to async get be provider actor
+		if err != nil {
+			log.ErrorfCtx(ctx, " M (Solution): failed to get current state: %+v", err)
+			return
+		}
+		desiredState := currentDesiredState
+		if previousDesiredState != nil {
+			desiredState = solution.MergeDeploymentStates(&previousDesiredState.State, currentDesiredState)
+		}
+
+		if planState.delete {
+			desiredState.MarkRemoveAll()
+		}
+
+		mergedState := solution.MergeDeploymentStates(&currentState, desiredState)
+		Plan, err := solution.PlanForDeployment(planState.Deployment, mergedState)
+		if err != nil {
+			return
+		}
+		// log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
+		s.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
+			Metadata: map[string]string{
+				"Id": planState.Deployment.JobID,
+			},
+			Body: PlanEnvelope{
+				Plan:                 Plan,
+				Deployment:           planState.Deployment,
+				MergedState:          mergedState,
+				PreviousDesiredState: previousDesiredState,
+				PlanId:               planState.Deployment.Instance.ObjectMeta.Name,
+				Remove:               planState.delete,
+				Namespace:            planState.Namespace,
+			},
+			Context: ctx,
+		})
+
+	}
+}
+
+func (s *StageVendor) isPhaseComplete(planState *PlanState) bool {
+	for _, step := range planState.Steps {
+		// check if all is complete (complete or failed)
+		if step.State != "complete" && step.State != "failed" {
+			return false
+		}
+	}
+
+	// check if any failed
+	hasFailure := false
+	for _, step := range planState.Steps {
+		// check if all is complete (complete or failed)
+		if step.State == "failed" {
+			hasFailure = true
+			break
+		}
+	}
+
+	if planState.Phase == PhaseGet {
+		return !hasFailure
+	}
+
+	// apply can part succeed
+	return true
+}
 func (s *StageVendor) SaveSummaryInfo(ctx context.Context, planState *PlanState, state model.SummaryState) error {
 	log.InfoCtx(ctx, "save summary info plan state %+v, summary state %+v", planState, state)
 	_, err := s.SolutionManager.StateProvider.Upsert(ctx, states.UpsertRequest{

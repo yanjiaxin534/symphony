@@ -318,11 +318,9 @@ func (s *SolutionManager) GeneratePlan(ctx context.Context, deployment model.Dep
 }
 
 // The deployment spec may have changed, so the previous target is not in the new deployment anymore
-func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDesiredState *SolutionManagerDeploymentState) (providers.IProvider, error) {
+func (s *SolutionManager) GetTargetProviderForStep(target string, role string, deployment model.DeploymentSpec, previousDesiredState *SolutionManagerDeploymentState) (providers.IProvider, error) {
 	var override tgt.ITargetProvider
-	log.Info("get step %+v", step)
-	log.Info("get step role %s", step.Role)
-	role := step.Role
+	log.Info("get step role %s", role)
 	if role == "container" {
 		role = "instance"
 	}
@@ -330,8 +328,8 @@ func (s *SolutionManager) GetTargetProviderForStep(step model.DeploymentStep, de
 	if v, ok := s.TargetProviders[role]; ok {
 		return v, nil
 	}
-	targetSpec := s.GetTargetStateForStep(step, deployment, previousDesiredState)
-	provider, err := sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
+	targetSpec := s.GetTargetStateForStep(target, deployment, previousDesiredState)
+	provider, err := sp.CreateProviderForTargetRole(s.Context, role, targetSpec, override)
 	if err != nil {
 		return nil, err
 	}
@@ -520,7 +518,7 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 		var provider providers.IProvider
 		// provider
 		if override == nil {
-			targetSpec := s.GetTargetStateForStep(step, deployment, previousDesiredState)
+			targetSpec := s.GetTargetStateForStep(step.Target, deployment, previousDesiredState)
 			provider, err = sp.CreateProviderForTargetRole(s.Context, step.Role, targetSpec, override)
 			if err != nil {
 				summary.SummaryMessage = "failed to create provider:" + err.Error()
@@ -648,12 +646,12 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 	return summary, nil
 }
 
-func (s *SolutionManager) GetTargetStateForStep(step model.DeploymentStep, deployment model.DeploymentSpec, previousDeploymentState *SolutionManagerDeploymentState) model.TargetState {
+func (s *SolutionManager) GetTargetStateForStep(target string, deployment model.DeploymentSpec, previousDeploymentState *SolutionManagerDeploymentState) model.TargetState {
 	//first find the target spec in the deployment
-	targetSpec, ok := deployment.Targets[step.Target]
+	targetSpec, ok := deployment.Targets[target]
 	if !ok {
 		if previousDeploymentState != nil {
-			targetSpec = previousDeploymentState.Spec.Targets[step.Target]
+			targetSpec = previousDeploymentState.Spec.Targets[target]
 		}
 	}
 	return targetSpec
@@ -910,6 +908,7 @@ func (s *SolutionManager) Get(ctx context.Context, deployment model.DeploymentSp
 
 	return ret, retComponents, nil
 }
+
 func (s *SolutionManager) Enabled() bool {
 	return s.Config.Properties["poll.enabled"] == "true"
 }

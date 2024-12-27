@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/eclipse-symphony/symphony/api/constants"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
@@ -22,6 +23,7 @@ import (
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/pubsub"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/vendors"
+	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 )
 
@@ -262,53 +264,83 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				Body:  []byte(err.Error()),
 			})
 		}
-		// get action
+		// // get action
 		delete := request.Parameters["delete"]
-		// get target name
-		targetName := ""
-		if request.Metadata != nil {
-			if v, ok := request.Metadata["active-target"]; ok {
-				targetName = v
-			}
-		}
+		// // get target name
+		// targetName := ""
+		// if request.Metadata != nil {
+		// 	if v, ok := request.Metadata["active-target"]; ok {
+		// 		targetName = v
+		// 	}
+		// }
 		// todo here
 		// summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
-		plan, mergedState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
-		if error != nil {
-			sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
+		planState := &PlanState{
+			ID:                   uuid.New().String(),
+			Phase:                PhaseGet,
+			Status:               "pending",
+			ExpireTime:           time.Now().Add(30 * time.Minute),
+			StartTime:            time.Now(),
+			Deployment:           deployment,
+			delete:               delete == "true",
+			PreviousDesiredState: previousDesiredState,
+		}
+
+		initalPlan, err := PlanForDeployment(deployment, model.DeploymentState{})
+		if err != nil {
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
-				State: v1alpha2.InternalError,
-				Body:  []byte(err.Error()),
+				State:       v1alpha2.MethodNotAllowed,
+				Body:        []byte("{\"result\":\"405 - method not allowed\"}"),
+				ContentType: "application/json",
 			})
 		}
-		log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
-		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
-			Metadata: map[string]string{
-				"Id": deployment.JobID,
-			},
-			Body: PlanEnvelope{
-				Plan:                 plan,
-				Deployment:           deployment,
-				MergedState:          mergedState,
-				PreviousDesiredState: previousDesiredState,
-				PlanId:               deployment.Instance.ObjectMeta.Name,
-				Remove:               delete == "true",
-				Namespace:            namespace,
-			},
+
+		// initialize step states
+		planState.Steps = make([]StepState, len(initalPlan.Steps))
+		for i, step := range initalPlan.Steps {
+			planState.Steps[i] = StepState{
+				Index:      i,
+				Target:     step.Target,
+				Role:       step.Role,
+				Components: make([]model.ComponentStep, 0),
+				State:      "Running",
+			}
+		}
+
+		c.Vendor.Context.Publish("publish-state", v1alpha2.Event{
+			Body:    planState,
 			Context: ctx,
 		})
 
-		// the plan actor get the plan and print it
-		// data, _ := json.Marshal(summary)
-		// if err != nil {
-		// 	sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - reconcile %s", err.Error())
+		c.createGetJobs(ctx, planState, deployment)
+		// plan, mergedState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
+		// previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
+
+		// if error != nil {
+		// 	sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
 		// 	return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 		// 		State: v1alpha2.InternalError,
-		// 		Body:  data,
+		// 		Body:  []byte(err.Error()),
 		// 	})
 		// }
+		// log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
+		// c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
+		// 	Metadata: map[string]string{
+		// 		"Id": deployment.JobID,
+		// 	},
+		// 	Body: PlanEnvelope{
+		// 		Plan:                 plan,
+		// 		Deployment:           deployment,
+		// 		MergedState:          mergedState,
+		// 		PreviousDesiredState: previousDesiredState,
+		// 		PlanId:               deployment.Instance.ObjectMeta.Name,
+		// 		Remove:               delete == "true",
+		// 		Namespace:            namespace,
+		// 	},
+		// 	Context: ctx,
+		// })
 		return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 			State: v1alpha2.OK,
 			// Body:        data,
@@ -321,6 +353,31 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		Body:        []byte("{\"result\":\"405 - method not allowed\"}"),
 		ContentType: "application/json",
 	})
+}
+
+func (c *SolutionVendor) createGetJobs(ctx context.Context, planState *PlanState, deployment model.DeploymentSpec) error {
+	for i, step := range planState.Steps {
+		job := &Job{
+			ID:                   uuid.New().String(),
+			Phase:                PhaseGet,
+			PlanID:               planState.ID,
+			StepIndex:            i,
+			Target:               step.Target,
+			Role:                 step.Role,
+			Components:           step.Components,
+			Deployment:           deployment,
+			PreviousDesiredState: planState.PreviousDesiredState,
+			State:                JobStateQueued,
+			CreateTime:           time.Now(),
+		}
+		if err := c.Vendor.Context.Publish("get-job", v1alpha2.Event{
+			Body:    job,
+			Context: ctx,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *SolutionVendor) onApplyDeployment(request v1alpha2.COARequest) v1alpha2.COAResponse {
