@@ -288,7 +288,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 			PreviousDesiredState: previousDesiredState,
 		}
 
-		initalPlan, err := PlanForDeployment(deployment, model.DeploymentState{})
+		initalPlan, err := solution.PlanForDeployment(deployment, model.DeploymentState{})
 		if err != nil {
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 				State:       v1alpha2.MethodNotAllowed,
