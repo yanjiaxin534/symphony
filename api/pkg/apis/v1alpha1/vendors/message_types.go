@@ -141,7 +141,7 @@ type StepState struct {
 	Components  []model.ComponentStep
 	State       string
 	GetResult   model.DeploymentState
-	ApplyResult interface{}
+	ApplyResult model.DeploymentState
 	Error       string
 }
 
