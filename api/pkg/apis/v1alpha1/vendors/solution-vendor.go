@@ -88,8 +88,8 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		"method": "onQueue",
 	})
 	defer span.End()
-	instance := request.Parameters["instance"]
-	sLog.InfofCtx(rContext, "V (Solution): onQueue, method: %s, %s", request.Method, instance)
+	// instance := request.Parameters["instance"]
+	// sLog.InfofCtx(rContext, "V (Solution): onQueue, method: %s, %s", request.Method, instance)
 
 	namespace, exist := request.Parameters["namespace"]
 	if !exist {

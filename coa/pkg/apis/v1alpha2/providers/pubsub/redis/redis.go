@@ -124,7 +124,7 @@ func (s *RedisPubSubProvider) SetContext(ctx *contexts.ManagerContext) {
 func (i *RedisPubSubProvider) InitWithMap(properties map[string]string) error {
 	config, err := RedisPubSubProviderConfigFromMap(properties)
 	if err != nil {
-		mLog.Errorf("  P (Redis PubSub) : failed to initialize provider %v", err)
+		// mLog.Errorf("  P (Redis PubSub) : failed to initialize provider %v", err)
 		return err
 	}
 	return i.Init(config)
@@ -133,7 +133,7 @@ func (i *RedisPubSubProvider) InitWithMap(properties map[string]string) error {
 func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 	vConfig, err := toRedisPubSubProviderConfig(config)
 	if err != nil {
-		mLog.Errorf("  P (Redis PubSub): failed to parse provider config %+v", err)
+		// mLog.Errorf("  P (Redis PubSub): failed to parse provider config %+v", err)
 		return v1alpha2.NewCOAError(nil, "provided config is not a valid redis pub-sub provider config", v1alpha2.BadConfig)
 	}
 	i.Config = vConfig
@@ -160,7 +160,7 @@ func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 	i.WorkerLock = &sync.Mutex{}
 	client := redis.NewClient(options)
 	if _, err := client.Ping(i.Ctx).Result(); err != nil {
-		mLog.Errorf("  P (Redis PubSub): failed to connect to redis %+v", err)
+		// mLog.Errorf("  P (Redis PubSub): failed to connect to redis %+v", err)
 		return v1alpha2.NewCOAError(err, fmt.Sprintf("redis stream: error connecting to redis at %s", i.Config.Host), v1alpha2.InternalError)
 	}
 	i.Client = client
@@ -171,7 +171,7 @@ func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error {
 	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message topic %s for topic %+v", topic, event)
 
-	messageId, err := i.Client.XAdd(i.Ctx, &redis.XAddArgs{
+	_, err := i.Client.XAdd(i.Ctx, &redis.XAddArgs{
 		Stream: topic,
 		Values: map[string]interface{}{"data": event},
 	}).Result()
@@ -180,7 +180,7 @@ func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error 
 		mLog.Errorf("  P (Redis PubSub) : failed to publish message %v", err)
 		return v1alpha2.NewCOAError(err, "failed to publish message", v1alpha2.InternalError)
 	}
-	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message %s for topic %s", messageId, topic)
+	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message %s for topic %s", messageId, topic)
 	return nil
 }
 func (i *RedisPubSubProvider) Subscribe(topic string, handler v1alpha2.EventHandler) error {
@@ -188,7 +188,7 @@ func (i *RedisPubSubProvider) Subscribe(topic string, handler v1alpha2.EventHand
 	err := i.Client.XGroupCreateMkStream(i.Ctx, topic, handler.Group, "0").Err()
 	//Ignore BUSYGROUP errors
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
-		mLog.Errorf("  P (Redis PubSub) : failed to subscribe %v", err)
+		// mLog.Errorf("  P (Redis PubSub) : failed to subscribe %v", err)
 		return v1alpha2.NewCOAError(err, fmt.Sprintf("failed to subscribe to topic %s and group %s", topic, handler.Group), v1alpha2.InternalError)
 	}
 	go i.pollNewMessagesLoop(topic, handler)
@@ -243,7 +243,7 @@ func (i *RedisPubSubProvider) pollNewMessages(topic string, handler v1alpha2.Eve
 				return
 			}
 			workerStarted = false
-			mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : new message for topic %s, group %s, messages %s", topic, handler.Group, streams[0].Messages[0].ID)
+			// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : new message for topic %s, group %s, messages %s", topic, handler.Group, streams[0].Messages[0].ID)
 			go i.processMessage(topic, handler, &streams[0].Messages[0])
 			workerStarted = true
 		} else {
@@ -296,12 +296,12 @@ func (i *RedisPubSubProvider) reclaimPendingMessages(topic string, handler v1alp
 			return
 		}
 		if claimWorker = i.WaitForIdleWorkers(pendingResult[0].ID, time.Second); !claimWorker {
-			mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : unable to claim idle workers in %s for topic %s, group %s, message %s", time.Second, topic, handler.Group, pendingResult[0].ID)
+			// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : unable to claim idle workers in %s for topic %s, group %s, message %s", time.Second, topic, handler.Group, pendingResult[0].ID)
 			return
 		}
 		msg, succeeded := i.ClaimMessage(topic, handler.Group, ClaimMessageIdleTime, pendingResult[0].ID)
 		if !succeeded {
-			mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : failed to claim message %s for topic %s, group %s", msg.ID, topic, handler.Group)
+			// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : failed to claim message %s for topic %s, group %s", msg.ID, topic, handler.Group)
 			continue
 		}
 		go i.processMessage(topic, handler, msg)
@@ -325,19 +325,19 @@ func (i *RedisPubSubProvider) processMessage(topic string, handler v1alpha2.Even
 	var evt v1alpha2.Event
 	err := json.Unmarshal([]byte(utils.FormatAsString(data)), &evt)
 	if err != nil {
-		mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to unmarshal event for message %s and topic %s, group %s: %v", msg.ID, topic, handler.Group, err.Error())
+		// mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to unmarshal event for message %s and topic %s, group %s: %v", msg.ID, topic, handler.Group, err.Error())
 		return v1alpha2.NewCOAError(err, "failed to unmarshal event", v1alpha2.InternalError)
 	}
 	shouldRetry := v1alpha2.EventShouldRetryWrapper(handler, topic, evt)
 	if shouldRetry {
-		mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : processing failed with retriable error for message %s for topic %s, group %s", msg.ID, topic, handler.Group)
+		// mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : processing failed with retriable error for message %s for topic %s, group %s", msg.ID, topic, handler.Group)
 		return v1alpha2.NewCOAError(err, fmt.Sprintf("failed to handle message %s", msg.ID), v1alpha2.InternalError)
 	}
 	_, err = i.Client.XAck(i.Ctx, topic, handler.Group, msg.ID).Result()
 	if err != nil {
-		mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to acknowledge message %s for topic %s, group %s: %v", msg.ID, topic, handler.Group, err)
+		// mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to acknowledge message %s for topic %s, group %s: %v", msg.ID, topic, handler.Group, err)
 	}
-	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : processing succeeded for message %s for topic %s, group %s", msg.ID, topic, handler.Group)
+	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : processing succeeded for message %s for topic %s, group %s", msg.ID, topic, handler.Group)
 	return nil
 }
 
@@ -350,7 +350,7 @@ func (i *RedisPubSubProvider) ClaimMessage(topic string, group string, minIdle t
 		Messages: []string{msgID},
 	}).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		mLog.Error("  P (Redis PubSub) : failed to reclaim pending message %s, topic %s, group %s: %v", msgID, topic, group, err)
+		// mLog.Error("  P (Redis PubSub) : failed to reclaim pending message %s, topic %s, group %s: %v", msgID, topic, group, err)
 		return nil, false
 	}
 	if len(claimResult) == 1 {
@@ -366,10 +366,10 @@ func (i *RedisPubSubProvider) ResetIdleTimeLoop(topic string, group string, msgI
 	for {
 		select {
 		case <-ticker.C:
-			mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : resetting idle time for message %s for topic %s, group %s", msgID, topic, group)
+			// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : resetting idle time for message %s for topic %s, group %s", msgID, topic, group)
 			_, succeeded := i.ClaimMessage(topic, group, claimIdleTime, msgID)
 			if !succeeded {
-				mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to reset idle time for message %s for topic %s, group %s", msgID, topic, group)
+				// mLog.ErrorfCtx(i.Ctx, "  P (Redis PubSub) : failed to reset idle time for message %s for topic %s, group %s", msgID, topic, group)
 			}
 		case <-stopCh:
 			return // Exit the goroutine when the stop signal is received
@@ -386,7 +386,7 @@ func toRedisPubSubProviderConfig(config providers.IProviderConfig) (RedisPubSubP
 	var configs map[string]interface{}
 	err = json.Unmarshal(data, &configs)
 	if err != nil {
-		mLog.Errorf("  P (Redis PubSub): failed to parse to map[string]interface{} %+v", err)
+		// mLog.Errorf("  P (Redis PubSub): failed to parse to map[string]interface{} %+v", err)
 		return ret, err
 	}
 	configStrings := map[string]string{}
@@ -396,7 +396,7 @@ func toRedisPubSubProviderConfig(config providers.IProviderConfig) (RedisPubSubP
 
 	ret, err = RedisPubSubProviderConfigFromMap(configStrings)
 	if err != nil {
-		mLog.Errorf("  P (Redis PubSub): failed to parse to RedisPubSubProviderConfig %+v", err)
+		// mLog.Errorf("  P (Redis PubSub): failed to parse to RedisPubSubProviderConfig %+v", err)
 		return ret, err
 	}
 	return ret, err
@@ -428,7 +428,7 @@ func (i *RedisPubSubProvider) ClaimWorker(msgID string) bool {
 	if i.IdleWorkers == 0 {
 		return false
 	}
-	mLog.DebugfCtx(i.Ctx, "  P (Redis PubSub) : claimWorker for message %s, remaining %d", msgID, i.IdleWorkers)
+	// mLog.DebugfCtx(i.Ctx, "  P (Redis PubSub) : claimWorker for message %s, remaining %d", msgID, i.IdleWorkers)
 	i.IdleWorkers--
 	return true
 }
@@ -437,5 +437,5 @@ func (i *RedisPubSubProvider) ReleaseWorker(msgID string) {
 	i.WorkerLock.Lock()
 	defer i.WorkerLock.Unlock()
 	i.IdleWorkers++
-	mLog.DebugfCtx(i.Ctx, "  P (Redis PubSub) : releaseWorker for message %s, remaining %d", msgID, i.IdleWorkers)
+	// mLog.DebugfCtx(i.Ctx, "  P (Redis PubSub) : releaseWorker for message %s, remaining %d", msgID, i.IdleWorkers)
 }
