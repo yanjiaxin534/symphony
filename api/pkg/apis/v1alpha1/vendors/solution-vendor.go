@@ -278,7 +278,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 		planState := &PlanState{
-			ID:                   uuid.New().String(),
+			PlanId:               uuid.New().String(),
 			Phase:                PhaseGet,
 			Status:               "pending",
 			ExpireTime:           time.Now().Add(30 * time.Minute),

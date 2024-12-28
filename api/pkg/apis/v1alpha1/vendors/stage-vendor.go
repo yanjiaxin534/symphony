@@ -496,7 +496,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorfCtx(ctx, " fail to unmarshal planState %v", err)
 				return err
 			}
-			s.PlanManager.Plans.Store(planState.ID, planState)
+			s.PlanManager.Plans.Store(planState.PlanId, planState)
 			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.ID, planState)
 			log.InfoCtx(ctx, "begin to create get job %v ", planState)
 			s.createGetJobs(ctx, &planState)
@@ -512,12 +512,12 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			}
 			var result Job
 			jData, _ := json.Marshal(event.Body)
-			log.InfofCtx(ctx, " subscribe get-job-result %v", jData)
+			log.InfofCtx(ctx, " subscribe get-job-result")
 			if err := json.Unmarshal(jData, &result); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal job result %v", err)
 				return err
 			}
-
+			log.InfofCtx(ctx, " subscribe get-job-result load planId %s", result.PlanID)
 			planStateObj, exists := s.PlanManager.Plans.Load(result.PlanID)
 			if !exists {
 				log.ErrorCtx(ctx, "stage plan %s not fount ", result.PlanID)
@@ -534,8 +534,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				step.GetResult = result.Result
 
 			}
-
-			s.PlanManager.Plans.Store(planState.ID, planState)
+			log.InfofCtx(ctx, " subscribe get-job-result update planId %s , %v", planState.PlanId, planState)
+			s.PlanManager.Plans.Store(planState.PlanId, planState)
 
 			if s.isPhaseComplete(planState) {
 				log.InfoCtx(ctx, "phase is completed %v", planState)
@@ -556,7 +556,7 @@ func (s *StageVendor) createGetJobs(ctx context.Context, planState *PlanState) e
 		job := &Job{
 			ID:                   uuid.New().String(),
 			Phase:                PhaseGet,
-			PlanID:               planState.ID,
+			PlanID:               planState.PlanId,
 			StepIndex:            i,
 			Target:               step.Target,
 			Role:                 step.Role,
