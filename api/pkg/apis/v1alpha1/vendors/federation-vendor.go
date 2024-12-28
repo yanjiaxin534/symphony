@@ -143,6 +143,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				job.State = "failed"
 			}
 			log.InfofCtx(ctx, " get job subscribe get-job job  %v", job)
+			job.State = "completed"
 			// get components
 			deployment := job.Deployment
 			deployment.ActiveTarget = job.Target
@@ -172,7 +173,6 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				getResult.TargetComponent[key] = role
 			}
 			job.Result = getResult
-			job.State = "completed"
 
 			log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", job.PlanID)
 			f.Vendor.Context.Publish("job-step-result", v1alpha2.Event{
