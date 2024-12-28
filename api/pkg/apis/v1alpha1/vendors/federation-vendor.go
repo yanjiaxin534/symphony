@@ -174,8 +174,8 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			job.Result = getResult
 			job.State = "completed"
 
-			log.InfoCtx(ctx, "begin to publish get-job-result with plan id %s", job.PlanID)
-			f.Vendor.Context.Publish("get-job-result", v1alpha2.Event{
+			log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", job.PlanID)
+			f.Vendor.Context.Publish("job-step-result", v1alpha2.Event{
 				Body:    job,
 				Context: ctx,
 			})

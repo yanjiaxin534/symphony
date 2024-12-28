@@ -497,14 +497,19 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				return err
 			}
 			s.PlanManager.Plans.Store(planState.PlanId, planState)
-			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.ID, planState)
+			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.PlanId, planState)
 			log.InfoCtx(ctx, "begin to create get job %v ", planState)
-			s.createGetJobs(ctx, &planState)
+			_, exists := s.PlanManager.Plans.Load(planState.PlanId)
+			if exists {
+				s.createGetJobs(ctx, &planState)
+			} else {
+				log.InfoCtx(ctx, "can not be find ")
+			}
 			return nil
 		},
 		Group: "stage-vendor",
 	})
-	s.Vendor.Context.Subscribe("get-job-result", v1alpha2.EventHandler{
+	s.Vendor.Context.Subscribe("job-step-result", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := event.Context
 			if ctx == nil {
@@ -512,12 +517,12 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			}
 			var result Job
 			jData, _ := json.Marshal(event.Body)
-			log.InfofCtx(ctx, " subscribe get-job-result")
+			log.InfofCtx(ctx, " subscribe job-step-result")
 			if err := json.Unmarshal(jData, &result); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal job result %v", err)
 				return err
 			}
-			log.InfofCtx(ctx, " subscribe get-job-result load planId %s %v", result.PlanID, result)
+			log.InfofCtx(ctx, " subscribe job-step-result load planId %s %v", result.PlanID, result)
 			planStateObj, exists := s.PlanManager.Plans.Load(result.PlanID)
 			if !exists {
 				log.ErrorCtx(ctx, "stage plan %s not fount ", result.PlanID)
@@ -534,7 +539,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				step.GetResult = result.Result
 
 			}
-			log.InfofCtx(ctx, " subscribe get-job-result update planId %s , %v", planState.PlanId, planState)
+			log.InfofCtx(ctx, " subscribe job-step-result update planId %s , %v", planState.PlanId, planState)
 			s.PlanManager.Plans.Store(planState.PlanId, planState)
 
 			if s.isPhaseComplete(planState) {
