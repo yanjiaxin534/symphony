@@ -169,7 +169,7 @@ func (i *RedisPubSubProvider) Init(config providers.IProviderConfig) error {
 }
 
 func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error {
-	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message topic %s for topic %+v", topic, event)
+	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : published message topic %s for topic %+v", topic, event)
 
 	messageId, err := i.Client.XAdd(i.Ctx, &redis.XAddArgs{
 		Stream: topic,
@@ -184,7 +184,7 @@ func (i *RedisPubSubProvider) Publish(topic string, event v1alpha2.Event) error 
 	return nil
 }
 func (i *RedisPubSubProvider) Subscribe(topic string, handler v1alpha2.EventHandler) error {
-	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : subscribing to topic %s with Group %s", topic, handler.Group)
+	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : subscribing to topic %s with Group %s", topic, handler.Group)
 	err := i.Client.XGroupCreateMkStream(i.Ctx, topic, handler.Group, "0").Err()
 	//Ignore BUSYGROUP errors
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
@@ -311,7 +311,7 @@ func (i *RedisPubSubProvider) reclaimPendingMessages(topic string, handler v1alp
 
 func (i *RedisPubSubProvider) processMessage(topic string, handler v1alpha2.EventHandler, msg *redis.XMessage) error {
 	defer i.ReleaseWorker(topic)
-	mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : processing message %s for topic %s, group %s", msg.ID, topic, handler.Group)
+	// mLog.InfofCtx(i.Ctx, "  P (Redis PubSub) : processing message %s for topic %s, group %s", msg.ID, topic, handler.Group)
 
 	// Reset the idle time for the message until process finishes so other processes won't pick it up
 	stopCh := make(chan struct{})

@@ -317,7 +317,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				State:      "Running",
 			}
 		}
-
+		log.InfoCtx(ctx, "begin to puhlish state %s", planState.PlanId)
 		c.Vendor.Context.Publish("publish-state", v1alpha2.Event{
 			Body:    planState,
 			Context: ctx,

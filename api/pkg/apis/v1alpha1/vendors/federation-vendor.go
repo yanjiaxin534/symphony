@@ -137,12 +137,12 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			}
 			var job Job
 			jData, _ := json.Marshal(event.Body)
-			log.InfofCtx(ctx, " get job subscribe step-result %v", jData)
+			log.InfofCtx(ctx, " get job subscribe get job %v", jData)
 			if err := json.Unmarshal(jData, &job); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
 				job.State = "failed"
 			}
-			log.InfofCtx(ctx, " get job subscribe step-result job  %v", job)
+			log.InfofCtx(ctx, " get job subscribe get-job job  %v", job)
 			// get components
 			deployment := job.Deployment
 			deployment.ActiveTarget = job.Target
