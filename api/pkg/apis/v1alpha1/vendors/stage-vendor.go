@@ -496,6 +496,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				return err
 			}
 			s.PlanManager.Plans.Store(planState.ID, planState)
+			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.ID, planState)
 			return nil
 		},
 		Group: "stage-vendor",

@@ -142,6 +142,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
 				return err
 			}
+			log.InfofCtx(ctx, " get job subscribe step-result job  %v", job)
 			// get components
 			deployment := job.Deployment
 			deployment.ActiveTarget = job.Target
