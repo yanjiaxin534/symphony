@@ -527,15 +527,15 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 
 			step := &planState.Steps[result.StepIndex]
 			step.State = string(result.State)
+			log.InfoCtx(ctx, "get job from result%v ", result)
 			switch result.Phase {
 			case PhaseGet:
-				if getState, ok := result.Result.(model.DeploymentState); ok {
-					step.GetResult = getState
-					log.InfoCtx(ctx, "update get result for step %d in plan %s ", result.StepIndex, result.PlanID)
-				}
+				log.InfoCtx(ctx, "update get result for step %d in plan %s planstate %v ", result.StepIndex, result.PlanID, planState)
+				step.GetResult = result.Result
+
 			}
 
-			s.PlanManager.Plans.Store(ctx, planState)
+			s.PlanManager.Plans.Store(planState.ID, planState)
 
 			if s.isPhaseComplete(planState) {
 				log.InfoCtx(ctx, "phase is completed %v", planState)
@@ -650,6 +650,9 @@ func (s *StageVendor) isPhaseComplete(planState *PlanState) bool {
 	}
 
 	if planState.Phase == PhaseGet {
+		if hasFailure {
+			// todo: update summary
+		}
 		return !hasFailure
 	}
 

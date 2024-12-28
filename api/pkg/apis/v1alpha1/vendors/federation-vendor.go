@@ -140,7 +140,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			log.InfofCtx(ctx, " get job subscribe step-result %v", jData)
 			if err := json.Unmarshal(jData, &job); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
-				return err
+				job.State = "failed"
 			}
 			log.InfofCtx(ctx, " get job subscribe step-result job  %v", job)
 			// get components
@@ -150,7 +150,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			provider, err := f.SolutionManager.GetTargetProviderForStep(job.Target, job.Role, job.Deployment, job.PreviousDesiredState)
 			if err != nil {
 				log.ErrorfCtx(ctx, "failed to create target provider : %v", err)
-				return err
+				job.State = "failed"
 			}
 			var components []model.ComponentSpec
 			// remote for queue then return -> get then dequeue -> publish result
@@ -172,6 +172,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				getResult.TargetComponent[key] = role
 			}
 			job.Result = getResult
+			job.State = "completed"
 			return f.Vendor.Context.Publish("get-job-result", v1alpha2.Event{
 				Body:    job,
 				Context: ctx,

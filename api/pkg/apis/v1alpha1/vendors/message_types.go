@@ -128,7 +128,7 @@ type Job struct {
 	Deployment           model.DeploymentSpec
 	Components           []model.ComponentStep
 	State                JobState
-	Result               interface{}
+	Result               model.DeploymentState
 	Error                string
 	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
 	CreateTime           time.Time
