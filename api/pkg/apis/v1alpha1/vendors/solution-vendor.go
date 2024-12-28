@@ -102,7 +102,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		instance := request.Parameters["instance"]
 
 		if instance == "" {
-			sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
+			// sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 				State:       v1alpha2.BadRequest,
 				Body:        []byte("{\"result\":\"400 - instance parameter is not found\"}"),
@@ -112,7 +112,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		summary, err := c.SolutionManager.GetSummary(ctx, instance, namespace)
 		data, _ := json.Marshal(summary)
 		if err != nil {
-			sLog.ErrorfCtx(ctx, "V (Solution): onQueue failed - %s", err.Error())
+			// sLog.ErrorfCtx(ctx, "V (Solution): onQueue failed - %s", err.Error())
 			if utils.IsNotFound(err) {
 				errorMsg := fmt.Sprintf("instance '%s' is not found in namespace %s", instance, namespace)
 				return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
@@ -160,7 +160,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		}
 
 		if instance == "" {
-			sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
+			// sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 				State:       v1alpha2.BadRequest,
 				Body:        []byte("{\"result\":\"400 - instance parameter is not found\"}"),
@@ -195,7 +195,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 		instance := request.Parameters["instance"]
 
 		if instance == "" {
-			sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
+			// sLog.ErrorCtx(ctx, "V (Solution): onQueue failed - 400 instance parameter is not found")
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 				State:       v1alpha2.BadRequest,
 				Body:        []byte("{\"result\":\"400 - instance parameter is not found\"}"),
@@ -216,7 +216,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 			ContentType: "application/json",
 		})
 	}
-	sLog.ErrorCtx(rContext, "V (Solution): onQueue failed - 405 method not allowed")
+	// sLog.ErrorCtx(rContext, "V (Solution): onQueue failed - 405 method not allowed")
 	return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 		State:       v1alpha2.MethodNotAllowed,
 		Body:        []byte("{\"result\":\"405 - method not allowed\"}"),
@@ -275,6 +275,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		// }
 		// todo here
 		// summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
+		log.InfoCtx(ctx, "begin to puhlish state hhhh")
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 		planState := &PlanState{
@@ -289,6 +290,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		}
 		var state model.DeploymentState
 		state, err = solution.NewDeploymentState(deployment)
+		log.InfoCtx(ctx, "begin to puhlish state 1%s", planState.PlanId)
 		if err != nil {
 			log.ErrorfCtx(ctx, " M (Solution): failed to create manager state for deployment: %+v", err)
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
@@ -297,6 +299,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				ContentType: "application/json",
 			})
 		}
+		log.InfoCtx(ctx, "begin to 2puhlish state %s", planState.PlanId)
 		initalPlan, err := solution.PlanForDeployment(deployment, state)
 		if err != nil {
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{

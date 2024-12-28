@@ -187,7 +187,7 @@ func (s *SolutionManager) GetSummary(ctx context.Context, key string, namespace 
 		},
 	})
 	if err != nil {
-		log.ErrorfCtx(ctx, " M (Solution): failed to get deployment summary[%s]: %+v", key, err)
+		// log.ErrorfCtx(ctx, " M (Solution): failed to get deployment summary[%s]: %+v", key, err)
 		return model.SummaryResult{}, err
 	}
 

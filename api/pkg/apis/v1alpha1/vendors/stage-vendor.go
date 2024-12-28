@@ -491,7 +491,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 
 			var planState PlanState
 			jData, _ := json.Marshal(event.Body)
-			log.InfofCtx(ctx, " subscribe step-result %v", jData)
+			log.InfofCtx(ctx, " subscribe publish-state %v", jData)
 			if err := json.Unmarshal(jData, &planState); err != nil {
 				log.ErrorfCtx(ctx, " fail to unmarshal planState %v", err)
 				return err
@@ -517,7 +517,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorfCtx(ctx, " fail to unmarshal job result %v", err)
 				return err
 			}
-			log.InfofCtx(ctx, " subscribe get-job-result load planId %s", result.PlanID)
+			log.InfofCtx(ctx, " subscribe get-job-result load planId %s %v", result.PlanID, result)
 			planStateObj, exists := s.PlanManager.Plans.Load(result.PlanID)
 			if !exists {
 				log.ErrorCtx(ctx, "stage plan %s not fount ", result.PlanID)
