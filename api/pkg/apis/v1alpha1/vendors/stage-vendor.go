@@ -29,6 +29,7 @@ import (
 	states "github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/states"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/vendors"
 	"github.com/eclipse-symphony/symphony/coa/pkg/logger"
+	"github.com/google/uuid"
 )
 
 const (
@@ -497,6 +498,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			}
 			s.PlanManager.Plans.Store(planState.ID, planState)
 			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.ID, planState)
+			log.InfoCtx(ctx, "begin to create get job %v ", planState)
+			s.createGetJobs(ctx, &planState)
 			return nil
 		},
 		Group: "stage-vendor",
@@ -545,6 +548,32 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 		},
 		Group: "stage-vendor",
 	})
+	return nil
+}
+
+func (s *StageVendor) createGetJobs(ctx context.Context, planState *PlanState) error {
+	for i, step := range planState.Steps {
+		job := &Job{
+			ID:                   uuid.New().String(),
+			Phase:                PhaseGet,
+			PlanID:               planState.ID,
+			StepIndex:            i,
+			Target:               step.Target,
+			Role:                 step.Role,
+			Components:           step.Components,
+			Deployment:           planState.Deployment,
+			PreviousDesiredState: planState.PreviousDesiredState,
+			State:                JobStateQueued,
+			CreateTime:           time.Now(),
+		}
+		log.InfofCtx(ctx, "begin to publish once %v", job)
+		if err := s.Vendor.Context.Publish("get-job", v1alpha2.Event{
+			Body:    job,
+			Context: ctx,
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
