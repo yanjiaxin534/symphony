@@ -496,15 +496,16 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorfCtx(ctx, " fail to unmarshal planState %v", err)
 				return err
 			}
-			s.PlanManager.Plans.Store(planState.PlanId, planState)
+			// s.PlanManager.Plans.Store(planState.PlanId, planState)
 			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.PlanId, planState)
-			log.InfoCtx(ctx, "begin to create get job %v ", planState)
-			_, exists := s.PlanManager.Plans.Load(planState.PlanId)
-			if exists {
-				s.createGetJobs(ctx, &planState)
-			} else {
-				log.InfoCtx(ctx, "can not be find ")
-			}
+			// log.InfoCtx(ctx, "begin to create get job %v ", planState)
+			// _, exists := s.PlanManager.Plans.Load(planState.PlanId)
+			// if exists {
+			// 	log.InfoCtx(ctx, "can  be find ")
+			s.createGetJobs(ctx, &planState)
+			// } else {
+			// 	log.InfoCtx(ctx, "can not be find ")
+			// }
 			return nil
 		},
 		Group: "stage-vendor",
