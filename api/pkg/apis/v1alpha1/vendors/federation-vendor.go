@@ -158,6 +158,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 
 			// f.StagingManager.QueueProvider.Enqueue()
 			//
+			log.InfoCtx(ctx, "begin to get")
 			components, err = (provider.(tgt.ITargetProvider)).Get(ctx, deployment, job.Components)
 			log.InfoCtx(ctx, "get components %v", components)
 			getResult := model.DeploymentState{
@@ -175,6 +176,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			job.Result = getResult
 
 			log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", job.PlanID)
+			time.Sleep(10 * time.Second)
 			f.Vendor.Context.Publish("job-step-result", v1alpha2.Event{
 				Body:    job,
 				Context: ctx,

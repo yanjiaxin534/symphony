@@ -465,7 +465,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			planId := event.Metadata["planId"]
 			planStateObj, exists := s.PlanManager.Plans.Load(planId)
 			if !exists {
-				log.ErrorCtx(ctx, "stage plan %s not fount ", planId)
+				log.ErrorCtx(ctx, "stage2 plan %s not fount ", planId)
 				return fmt.Errorf("plan not fount %s", planId)
 			}
 			planState := planStateObj.(*PlanState)
@@ -496,7 +496,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				log.ErrorfCtx(ctx, " fail to unmarshal planState %v", err)
 				return err
 			}
-			// s.PlanManager.Plans.Store(planState.PlanId, planState)
+			s.PlanManager.Plans.Store(planState.PlanId, planState)
 			log.InfoCtx(ctx, "publish-state: store plan Id %s %v", planState.PlanId, planState)
 			// log.InfoCtx(ctx, "begin to create get job %v ", planState)
 			// _, exists := s.PlanManager.Plans.Load(planState.PlanId)
@@ -527,6 +527,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			planStateObj, exists := s.PlanManager.Plans.Load(result.PlanID)
 			if !exists {
 				log.ErrorCtx(ctx, "stage plan %s not fount ", result.PlanID)
+				// s.PlanManager.Plans.Store(result.PlanID, result)
 				return fmt.Errorf("plan not fount %s", result.PlanID)
 			}
 			planState := planStateObj.(*PlanState)
