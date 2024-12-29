@@ -572,6 +572,7 @@ func (s *StageVendor) createGetJobs(ctx context.Context, planState *PlanState) e
 			PreviousDesiredState: planState.PreviousDesiredState,
 			State:                JobStateQueued,
 			CreateTime:           time.Now(),
+			PlanState:            *planState,
 		}
 		log.InfofCtx(ctx, "begin to publish once %v", job)
 		if err := s.Vendor.Context.Publish("get-job", v1alpha2.Event{

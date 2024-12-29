@@ -133,6 +133,7 @@ type Job struct {
 	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
 	CreateTime           time.Time
 	UpdateTime           time.Time
+	PlanState            PlanState
 }
 type StepState struct {
 	Index       int
