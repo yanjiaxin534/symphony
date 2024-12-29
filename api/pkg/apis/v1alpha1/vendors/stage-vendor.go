@@ -559,6 +559,11 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 }
 
 func (s *StageVendor) createGetJobs(ctx context.Context, planState *PlanState) error {
+	log.InfoCtx(ctx, "begin to create get job %v ", planState)
+	_, exists := s.PlanManager.Plans.Load(planState.PlanId)
+	if !exists {
+		log.InfoCtx(ctx, "can  be find ")
+	}
 	for i, step := range planState.Steps {
 		job := &Job{
 			ID:                   uuid.New().String(),
