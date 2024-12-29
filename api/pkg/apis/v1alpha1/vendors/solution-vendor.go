@@ -23,7 +23,6 @@ import (
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/pubsub"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/vendors"
-	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 )
 
@@ -205,7 +204,7 @@ func (c *SolutionVendor) onQueue(request v1alpha2.COARequest) v1alpha2.COARespon
 
 		err := c.SolutionManager.DeleteSummary(ctx, instance, namespace)
 		if err != nil {
-			sLog.ErrorfCtx(ctx, "V (Solution): onQueue DeleteSummary failed - %s", err.Error())
+			// sLog.ErrorfCtx(ctx, "V (Solution): onQueue DeleteSummary failed - %s", err.Error())
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 				State: v1alpha2.InternalError,
 				Body:  []byte(err.Error()),
@@ -279,7 +278,8 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 		planState := &PlanState{
-			PlanId:               uuid.New().String(),
+			// PlanId:               uuid.New().String(),
+			PlanId:               "000",
 			Phase:                PhaseGet,
 			Status:               "pending",
 			ExpireTime:           time.Now().Add(30 * time.Minute),
