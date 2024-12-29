@@ -285,7 +285,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 			ExpireTime:           time.Now().Add(30 * time.Minute),
 			StartTime:            time.Now(),
 			Deployment:           deployment,
-			delete:               delete == "true",
+			Delete:               delete == "true",
 			PreviousDesiredState: previousDesiredState,
 		}
 		var state model.DeploymentState

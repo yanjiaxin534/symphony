@@ -615,7 +615,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 		currentState := model.DeploymentState{}
 		currentState.TargetComponent = make(map[string]string)
 
-		for StepState := range planState.Steps {
+		for _, StepState := range planState.Steps {
 			for _, c := range StepState.GetResult {
 				key := fmt.Sprintf("%s::%s", c.Name, StepState.Target)
 				role := c.Type
@@ -664,7 +664,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 				MergedState:          mergedState,
 				PreviousDesiredState: previousDesiredState,
 				PlanId:               planState.Deployment.Instance.ObjectMeta.Name,
-				Remove:               planState.delete,
+				Remove:               planState.Delete,
 				Namespace:            planState.Namespace,
 			},
 			Context: ctx,
@@ -738,7 +738,7 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 	if stepResult.Success {
 		planState.Summary.SuccessCount++
 	}
-	switch PlanState.Phase {
+	switch planState.Phase {
 	case PhaseGet:
 		log.InfoCtx(ctx, " update phase get %v ", stepResult.retComoponents)
 		planState.Steps[stepResult.StepId].GetResult = stepResult.retComoponents
@@ -758,7 +758,7 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 
 	// check if all step is completed
 	if planState.isCompleted() {
-		log.InfoCtx(ctx, "plan state %s is completed %v ", PlanState.Phase, planState)
+		log.InfoCtx(ctx, "plan state %s is completed %v ", planState.Phase, planState)
 		allSuccess := planState.Summary.SuccessCount == planState.TotalSteps
 		planState.Summary.AllAssignedDeployed = allSuccess
 		log.InfofCtx(ctx, "summary info %+v all assign %s", planState.Summary, planState.Summary.AllAssignedDeployed)
@@ -807,27 +807,6 @@ func (pm *PlanManager) GetPlan(planId string) (*PlanState, bool) {
 }
 func (pm *PlanManager) DeletePlan(planId string) {
 	pm.Plans.Delete(planId)
-}
-
-func (pm *PlanManager) CreatePlan(planEnvelope PlanEnvelope) *PlanState {
-	planState := &PlanState{
-		PlanId:     planEnvelope.PlanId,
-		StartTime:  time.Now(),
-		ExpireTime: time.Now().Add(pm.Timeout),
-		TotalSteps: len(planEnvelope.Plan.Steps),
-		Summary: model.SummarySpec{
-			TargetResults:       make(map[string]model.TargetResultSpec),
-			TargetCount:         len(planEnvelope.Deployment.Targets),
-			SuccessCount:        0,
-			AllAssignedDeployed: false,
-			JobID:               planEnvelope.Deployment.JobID,
-		},
-		MergedState: planEnvelope.MergedState,
-		Deployment:  planEnvelope.Deployment,
-		Status:      "PlanStatusRunning",
-	}
-	pm.Plans.Store(planEnvelope.PlanId, planState)
-	return planState
 }
 
 func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState *PlanState) error {
