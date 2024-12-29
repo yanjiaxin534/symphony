@@ -336,21 +336,22 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		// 	})
 		// }
 		// log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
-		// c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
-		// 	Metadata: map[string]string{
-		// 		"Id": deployment.JobID,
-		// 	},
-		// 	Body: PlanEnvelope{
-		// 		Plan:                 plan,
-		// 		Deployment:           deployment,
-		// 		MergedState:          mergedState,
-		// 		PreviousDesiredState: previousDesiredState,
-		// 		PlanId:               deployment.Instance.ObjectMeta.Name,
-		// 		Remove:               delete == "true",
-		// 		Namespace:            namespace,
-		// 	},
-		// 	Context: ctx,
-		// })
+		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
+			Metadata: map[string]string{
+				"Id": deployment.JobID,
+			},
+			Body: PlanEnvelope{
+				Plan:                 initalPlan,
+				Deployment:           deployment,
+				MergedState:          model.DeploymentState{},
+				PreviousDesiredState: previousDesiredState,
+				PlanId:               deployment.Instance.ObjectMeta.Name,
+				Remove:               delete == "true",
+				Namespace:            namespace,
+				Phase:                PhaseGet,
+			},
+			Context: ctx,
+		})
 		return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
 			State: v1alpha2.OK,
 			// Body:        data,

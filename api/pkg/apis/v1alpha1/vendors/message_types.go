@@ -42,6 +42,7 @@ type PlanEnvelope struct {
 	PlanId               string                                   `json:"planId"`
 	Generation           string                                   `json:"generation"` // deployment version
 	Hash                 string                                   `json:"hash"`
+	Phase                JobPhase
 }
 type PlanResult struct {
 	PlanState *PlanState `json:"planstate"`
@@ -54,9 +55,11 @@ type StepEnvelope struct {
 	Remove     bool                 `json:"remove"`
 	Namespace  string               `json:"Namespace"`
 	PlanId     string               `json:"planId"`
-	StepId     string               `json:"stepId"`
+	StepId     int                  `json:"stepId"`
 	PlanState  *PlanState           `json:"planState"`
 	// Provider   providers.IProvider  `json:"provider"`
+	Phase           JobPhase
+	DeploymentState model.DeploymentState
 }
 
 type PlanManager struct {
@@ -74,10 +77,12 @@ type StepResult struct {
 	TargetResultSpec model.TargetResultSpec               `json:"targetResult"`
 	Components       map[string]model.ComponentResultSpec `json:"components"`
 	PlanId           string                               `json:"planId"`
-	StepId           string                               `json:"stepId"`
+	StepId           int                                  `json:"stepId"`
 	Timestamp        time.Time                            `json:"timestamp"`
 	ApplyResult      interface{}                          `json:"applyresult"`
 	GetResult        interface{}                          `json:"getresult"`
+	Phase            JobPhase
+	retComoponents   []model.ComponentSpec
 }
 type ProviderGetRequest struct {
 	AgentRequest
@@ -141,7 +146,7 @@ type StepState struct {
 	Role        string
 	Components  []model.ComponentStep
 	State       string
-	GetResult   model.DeploymentState
+	GetResult   []model.ComponentSpec
 	ApplyResult model.DeploymentState
 	Error       string
 }

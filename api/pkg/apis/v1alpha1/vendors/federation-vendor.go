@@ -205,13 +205,6 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			// get provider todo : is dry run
 			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
 			if err != nil {
-				// planState.Summary.SummaryMessage = "failed to create provider:" + err.Error()
-				// s.PlanManager.Plans.Store(stepEnvelope.PlanId, planState)
-				// log.ErrorfCtx(ctx, " M (Solution): failed to create provider: %+v", err)
-				// // update summary
-				// if err := f.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
-
-				// }
 				log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
 				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
 				targetResultMessage := fmt.Sprintf("failed to create provider %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], err)
@@ -219,19 +212,67 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, make(map[string]model.ComponentResultSpec))
 			}
 			log.InfoCtx(ctx, "deployment-step begin to apply step ")
-			componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
-			log.InfoCtx(ctx, "need to deploy a deployment")
 
-			if stepError != nil {
-				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
-				targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
-				targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}
-				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, componentResults)
+			switch stepEnvelope.Phase {
+			case PhaseGet:
+				log.InfoCtx(ctx, "begin to phase get")
+				log.InfoCtx(ctx, "begin to get")
+				components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, stepEnvelope.Deployment, stepEnvelope.Step.Components)
+				if stepError != nil {
+					// targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+					// targetResultMessage := fmt.Sprintf("An error occurred in provider get %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
+					// targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
+					return stepError
+				}
+				log.InfoCtx(ctx, "get components %v", components)
+				stepEnvelope.DeploymentState.Components = components
+
+				log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", stepEnvelope.PlanId)
+				stepResult := &StepResult{
+					Step:           stepEnvelope.Step,
+					Success:        true,
+					Phase:          PhaseGet,
+					retComoponents: components,
+				}
+				f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+					Metadata: map[string]string{
+						"planId": stepEnvelope.PlanId,
+						"stepId": stepEnvelope.StepId,
+					},
+					Body:    stepResult,
+					Context: ctx,
+				})
+			case PhaseApply:
+				log.InfoCtx(ctx, "begin to phase apply")
+				componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
+				log.InfoCtx(ctx, "need to deploy a deployment")
+
+				if stepError != nil {
+					targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+					targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
+					targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}
+					return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, componentResults)
+				}
+				log.InfoCtx(ctx, "deployment-step deploy done ")
+				targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
+				log.InfoCtx(ctx, "begin to publish result ")
+				return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+					Metadata: map[string]string{
+						"planId": stepEnvelope.PlanId,
+						"stepId": stepEnvelope.StepId,
+					},
+					Body: StepResult{
+						Step:             stepEnvelope.Step,
+						PlanId:           stepEnvelope.StepId,
+						StepId:           stepEnvelope.StepId,
+						Success:          true,
+						TargetResultSpec: targetResultSpec,
+						Components:       componentResults,
+						Timestamp:        time.Now(),
+					},
+				})
 			}
-			log.InfoCtx(ctx, "deployment-step deploy done ")
-			targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
-			log.InfoCtx(ctx, "begin to publish result ")
-			return f.publishStepResult(ctx, stepEnvelope, true, targetResultSpec, componentResults)
+			return nil
 		},
 		Group: "federation-vendor",
 	})
@@ -288,13 +329,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 
 func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, spec model.TargetResultSpec, components map[string]model.ComponentResultSpec) error {
 	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-		Metadata: map[string]string{
-			"planId": stepEnvelope.PlanId,
-			"stepId": stepEnvelope.StepId,
-		},
 		Body: StepResult{
 			Step:             stepEnvelope.Step,
-			PlanId:           stepEnvelope.StepId,
+			PlanId:           stepEnvelope.PlanId,
 			StepId:           stepEnvelope.StepId,
 			Success:          success,
 			TargetResultSpec: spec,
@@ -303,6 +340,7 @@ func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope S
 		},
 	})
 }
+
 func (f *FederationVendor) GetEndpoints() []v1alpha2.Endpoint {
 	route := "federation"
 	if f.Route != "" {
