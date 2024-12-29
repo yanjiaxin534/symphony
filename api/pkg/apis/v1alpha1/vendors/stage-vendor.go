@@ -412,28 +412,21 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
 			// get provider
 			// ret retcomponents for get
-			deploymentState, err := solution.NewDeploymentState(StepEnvelope.Deployment)
-			if err != nil {
-				log.ErrorfCtx(ctx, "ret error for remotettt test")
-				return err
-			}
-			deploymentState.TargetComponent = make(map[string]string)
-			deploymentState.Components = make([]model.ComponentSpec, 0)
+
 			for i, step := range planEnvelope.Plan.Steps {
 				stepId := fmt.Sprintf("%s-step-%d", planEnvelope.PlanId, i)
 				switch planEnvelope.Phase {
 				case PhaseGet:
 					log.InfoCtx(ctx, "phase get begin")
 					stepEnvelope := &StepEnvelope{
-						Phase:           PhaseGet,
-						PlanId:          planEnvelope.PlanId,
-						StepId:          stepId,
-						Step:            step,
-						Deployment:      planEnvelope.Deployment,
-						PlanState:       planState,
-						Remove:          planEnvelope.Remove,
-						Namespace:       planEnvelope.Namespace,
-						DeploymentState: deploymentState,
+						Phase:      PhaseGet,
+						PlanId:     planEnvelope.PlanId,
+						StepId:     i,
+						Step:       step,
+						Deployment: planEnvelope.Deployment,
+						PlanState:  planState,
+						Remove:     planEnvelope.Remove,
+						Namespace:  planEnvelope.Namespace,
 					}
 					log.InfofCtx(ctx, "begin to publish once %v", stepEnvelope)
 					if err := s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
@@ -451,7 +444,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 							Remove:     planEnvelope.Remove,
 							Namespace:  planEnvelope.Namespace,
 							PlanId:     planEnvelope.PlanId,
-							StepId:     stepId,
+							StepId:     i,
 							PlanState:  planState,
 							Phase:      PhaseApply,
 						},
@@ -491,21 +484,10 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 			planState := planStateObj.(*PlanState)
 
 			// update plan state
-			switch stepResult.Phase {
-			case PhaseGet:
-				planState.Steps[stepResult.StepId].GetResult = stepResult.retComoponents
-				if err := s.updatePlanState(ctx, planState, stepResult); err != nil {
-					log.ErrorCtx(ctx, " failed to update plan state %v", err)
-					return err
-				}
-			case PhaseApply:
-				log.InfoCtx(ctx, "update plan state ")
-				if err := s.updatePlanState(ctx, planState, stepResult); err != nil {
-					log.ErrorCtx(ctx, " failed to update plan state %v", err)
-					return err
-				}
+			if err := s.updatePlanState(ctx, planState, stepResult); err != nil {
+				log.ErrorCtx(ctx, " failed to update plan state %v", err)
+				return err
 			}
-
 			return nil
 		},
 		Group: "stage-vendor",
@@ -661,7 +643,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 			desiredState = solution.MergeDeploymentStates(&previousDesiredState.State, currentDesiredState)
 		}
 
-		if planState.delete {
+		if planState.Delete {
 			desiredState.MarkRemoveAll()
 		}
 
@@ -759,7 +741,7 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 	switch PlanState.Phase {
 	case PhaseGet:
 		log.InfoCtx(ctx, " update phase get %v ", stepResult.retComoponents)
-
+		planState.Steps[stepResult.StepId].GetResult = stepResult.retComoponents
 	case PhaseApply:
 		log.InfoCtx(ctx, " update phase apply %v ", stepResult.TargetResultSpec)
 		//update target

@@ -230,15 +230,13 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", stepEnvelope.PlanId)
 				stepResult := &StepResult{
 					Step:           stepEnvelope.Step,
+					PlanId:         stepEnvelope.PlanId,
+					StepId:         stepEnvelope.StepId,
 					Success:        true,
 					Phase:          PhaseGet,
 					retComoponents: components,
 				}
 				f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-					Metadata: map[string]string{
-						"planId": stepEnvelope.PlanId,
-						"stepId": stepEnvelope.StepId,
-					},
 					Body:    stepResult,
 					Context: ctx,
 				})
@@ -257,13 +255,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
 				log.InfoCtx(ctx, "begin to publish result ")
 				return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-					Metadata: map[string]string{
-						"planId": stepEnvelope.PlanId,
-						"stepId": stepEnvelope.StepId,
-					},
 					Body: StepResult{
 						Step:             stepEnvelope.Step,
-						PlanId:           stepEnvelope.StepId,
+						PlanId:           stepEnvelope.PlanId,
 						StepId:           stepEnvelope.StepId,
 						Success:          true,
 						TargetResultSpec: targetResultSpec,
