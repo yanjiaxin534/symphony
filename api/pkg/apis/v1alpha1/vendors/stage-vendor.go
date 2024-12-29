@@ -667,6 +667,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 				PlanId:               planState.Deployment.Instance.ObjectMeta.Name,
 				Remove:               planState.Delete,
 				Namespace:            planState.Namespace,
+				Phase:                PhaseApply,
 			},
 			Context: ctx,
 		})
