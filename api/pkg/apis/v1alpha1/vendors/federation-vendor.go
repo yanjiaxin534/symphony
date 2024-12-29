@@ -160,6 +160,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			case PhaseGet:
 				log.InfoCtx(ctx, "begin to phase get")
 				log.InfoCtx(ctx, "begin to get")
+				// if for remote
+
+				f.StagingManager.QueueProvider.Enqueue("get", stepEnvelope)
 				components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, stepEnvelope.Deployment, stepEnvelope.Step.Components)
 				if stepError != nil {
 					// targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
@@ -184,6 +187,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 					Context: ctx,
 				})
 			case PhaseApply:
+				// if remote
+				f.StagingManager.QueueProvider.Enqueue("apply", stepEnvelope)
+
 				log.InfoCtx(ctx, "begin to phase apply")
 				componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
 				log.InfoCtx(ctx, "need to deploy a deployment")
@@ -263,7 +269,71 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 		IsSelf:     true,
 	})
 }
+func (f *FederationVendor) onGetRequest(agentRequest AgentRequest) (*ProviderGetRequest, *ProviderApplyRequest, error) {
 
+	switch agentRequest.Action {
+	case "get":
+		queueElement, err := f.StagingManager.QueueProvider.Dequeue("get")
+		if err != nil {
+			return nil, nil, err
+		}
+		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
+			providerGetRequest := &ProviderGetRequest{
+				AgentRequest: agentRequest,
+				Deployment:   stepEnvelope.Deployment,
+				References:   stepEnvelope.Step.Components,
+			}
+			return providerGetRequest, nil, nil
+		}
+	case "apply":
+		queueElement, err := f.StagingManager.QueueProvider.Dequeue("apply")
+		if err != nil {
+			return nil, nil, err
+		}
+		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
+			providerGetRequest := &ProviderApplyRequest{
+				AgentRequest: agentRequest,
+				Step:         stepEnvelope.Step,
+				IsDryRun:     stepEnvelope.Deployment.IsDryRun,
+			}
+			return nil, providerGetRequest, nil
+		}
+	}
+	return nil, nil, nil
+}
+
+func (f *FederationVendor) onHandleRequest(agentRequest AgentRequest) (*ProviderGetRequest, *ProviderApplyRequest, error) {
+
+	switch agentRequest.Action {
+	case "get":
+		queueElement, err := f.StagingManager.QueueProvider.Dequeue("get")
+		if err != nil {
+			return nil, nil, err
+		}
+		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
+			providerGetRequest := &ProviderGetRequest{
+				AgentRequest: agentRequest,
+				Deployment:   stepEnvelope.Deployment,
+				References:   stepEnvelope.Step.Components,
+			}
+			return providerGetRequest, nil, nil
+		}
+	case "apply":
+		queueElement, err := f.StagingManager.QueueProvider.Dequeue("apply")
+		if err != nil {
+			return nil, nil, err
+		}
+		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
+			providerGetRequest := &ProviderApplyRequest{
+				AgentRequest: agentRequest,
+				Step:         stepEnvelope.Step,
+				IsDryRun:     stepEnvelope.Deployment.IsDryRun,
+			}
+			return nil, providerGetRequest, nil
+		}
+	}
+	return nil, nil, nil
+}
 func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, spec model.TargetResultSpec, components map[string]model.ComponentResultSpec) error {
 	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
 		Body: StepResult{
