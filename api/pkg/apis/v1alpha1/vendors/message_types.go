@@ -111,7 +111,7 @@ type PlanState struct {
 	PreviousDesiredState *solution.SolutionManagerDeploymentState `json:"previous`
 	Status               string                                   `json:"status"`
 	Namespace            string                                   `json:"namespace"`
-	delete               bool
+	Delete               bool
 	Steps                []StepState
 }
 type JobState string
