@@ -407,6 +407,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				MergedState:          planEnvelope.MergedState,
 				Deployment:           planEnvelope.Deployment,
 				Namespace:            planEnvelope.Namespace,
+				StepStates:           make([]StepState, len(planEnvelope.Plan.Steps)),
 			}
 			log.InfoCtx(ctx, "<<<< tstore plan id %s plan  %v", planEnvelope.PlanId, planState)
 			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
@@ -615,7 +616,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 		currentState := model.DeploymentState{}
 		currentState.TargetComponent = make(map[string]string)
 
-		for _, StepState := range planState.Steps {
+		for _, StepState := range planState.StepStates {
 			for _, c := range StepState.GetResult {
 				key := fmt.Sprintf("%s::%s", c.Name, StepState.Target)
 				role := c.Type
@@ -673,7 +674,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 }
 
 func (s *StageVendor) isPhaseComplete(planState *PlanState) bool {
-	for _, step := range planState.Steps {
+	for _, step := range planState.StepStates {
 		// check if all is complete (complete or failed)
 		if step.State != "complete" && step.State != "failed" {
 			return false
@@ -682,7 +683,7 @@ func (s *StageVendor) isPhaseComplete(planState *PlanState) bool {
 
 	// check if any failed
 	hasFailure := false
-	for _, step := range planState.Steps {
+	for _, step := range planState.StepStates {
 		// check if all is complete (complete or failed)
 		if step.State == "failed" {
 			hasFailure = true
@@ -741,7 +742,7 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 	switch planState.Phase {
 	case PhaseGet:
 		log.InfoCtx(ctx, " update phase get %v ", stepResult.retComoponents)
-		planState.Steps[stepResult.StepId].GetResult = stepResult.retComoponents
+		planState.StepStates[stepResult.StepId].GetResult = stepResult.retComoponents
 	case PhaseApply:
 		log.InfoCtx(ctx, " update phase apply %v ", stepResult.TargetResultSpec)
 		//update target

@@ -310,9 +310,9 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		}
 
 		// initialize step states
-		planState.Steps = make([]StepState, len(initalPlan.Steps))
+		planState.StepStates = make([]StepState, len(initalPlan.Steps))
 		for i, step := range initalPlan.Steps {
-			planState.Steps[i] = StepState{
+			planState.StepStates[i] = StepState{
 				Index:      i,
 				Target:     step.Target,
 				Role:       step.Role,

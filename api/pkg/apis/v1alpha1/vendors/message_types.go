@@ -112,7 +112,7 @@ type PlanState struct {
 	Status               string                                   `json:"status"`
 	Namespace            string                                   `json:"namespace"`
 	Delete               bool
-	Steps                []StepState
+	StepStates           []StepState
 }
 type JobState string
 
