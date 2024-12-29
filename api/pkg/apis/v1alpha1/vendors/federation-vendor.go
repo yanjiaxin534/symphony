@@ -76,8 +76,6 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 		}
 		if c, ok := m.(*solution.SolutionManager); ok {
 			f.SolutionManager = c
-		} else {
-			log.Info("some error %+v", m)
 		}
 	}
 	if f.StagingManager == nil {
@@ -129,62 +127,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			return nil
 		},
 	})
-	// f.Vendor.Context.Subscribe("get-job", v1alpha2.EventHandler{
-	// 	Handler: func(topic string, event v1alpha2.Event) error {
-	// 		ctx := event.Context
-	// 		if ctx == nil {
-	// 			ctx = context.TODO()
-	// 		}
-	// 		var job Job
-	// 		jData, _ := json.Marshal(event.Body)
-	// 		log.InfofCtx(ctx, " get job subscribe get job %v", jData)
-	// 		if err := json.Unmarshal(jData, &job); err != nil {
-	// 			log.ErrorfCtx(ctx, " fail to unmarshal step result %v", err)
-	// 			job.State = "failed"
-	// 		}
-	// 		log.InfofCtx(ctx, " get job subscribe get-job job  %v", job)
-	// 		job.State = "completed"
-	// 		// get components
-	// 		deployment := job.Deployment
-	// 		deployment.ActiveTarget = job.Target
 
-	// 		provider, err := f.SolutionManager.GetTargetProviderForStep(job.Target, job.Role, job.Deployment, job.PreviousDesiredState)
-	// 		if err != nil {
-	// 			log.ErrorfCtx(ctx, "failed to create target provider : %v", err)
-	// 			job.State = "failed"
-	// 		}
-	// 		var components []model.ComponentSpec
-	// 		// remote for queue then return -> get then dequeue -> publish result
-
-	// 		// f.StagingManager.QueueProvider.Enqueue()
-	// 		//
-	// 		log.InfoCtx(ctx, "begin to get")
-	// 		components, err = (provider.(tgt.ITargetProvider)).Get(ctx, deployment, job.Components)
-	// 		log.InfoCtx(ctx, "get components %v", components)
-	// 		getResult := model.DeploymentState{
-	// 			Components:      components,
-	// 			TargetComponent: make(map[string]string),
-	// 		}
-	// 		for _, c := range components {
-	// 			key := fmt.Sprintf("%s::%s", c.Name, job.Target)
-	// 			role := c.Type
-	// 			if role == "" {
-	// 				role = "container"
-	// 			}
-	// 			getResult.TargetComponent[key] = role
-	// 		}
-	// 		job.Result = getResult
-
-	// 		log.InfoCtx(ctx, "begin to publish job-step-result with plan id %s", job.PlanID)
-	// 		time.Sleep(10 * time.Second)
-	// 		// f.Vendor.Context.Publish("job-step-result", v1alpha2.Event{
-	// 		// 	Body:    job,
-	// 		// 	Context: ctx,
-	// 		// })
-	// 		return nil
-	// 	},
-	// 	Group: "federation-vendor",
-	// })
 	f.Vendor.Context.Subscribe("deployment-step", v1alpha2.EventHandler{
 		Handler: func(topic string, event v1alpha2.Event) error {
 			ctx := context.TODO()

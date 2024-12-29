@@ -325,17 +325,6 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 			Body:    planState,
 			Context: ctx,
 		})
-		// plan, mergedState, error := c.SolutionManager.GeneratePlan(ctx, deployment, delete == "true", namespace, targetName)
-		// previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
-
-		// if error != nil {
-		// 	sLog.ErrorfCtx(ctx, "V (Solution): onReconcile failed POST - fail to generate plan %s", err.Error())
-		// 	return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{
-		// 		State: v1alpha2.InternalError,
-		// 		Body:  []byte(err.Error()),
-		// 	})
-		// }
-		// log.InfoCtx(ctx, "begin to publish topic deployment plan %v", plan)
 		c.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
 			Metadata: map[string]string{
 				"Id": deployment.JobID,
