@@ -654,7 +654,7 @@ func (s *StageVendor) handlePhaseGetCompletetion(ctx context.Context, planState 
 			log.ErrorCtx(ctx, "plan generate error")
 			return
 		}
-		log.InfoCtx(ctx, "begin to publish topic deployment plan %v merged state %v", planState, mergedState)
+		log.InfoCtx(ctx, "begin to publish topic to deployment plan %v merged state %v get plan %v", planState, mergedState, Plan)
 		s.Vendor.Context.Publish("deployment-plan", v1alpha2.Event{
 			Metadata: map[string]string{
 				"Id": planState.Deployment.JobID,
