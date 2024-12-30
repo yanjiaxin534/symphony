@@ -28,8 +28,10 @@ import (
 	observ_utils "github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/observability/utils"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/pubsub"
+	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/states"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/vendors"
 	"github.com/eclipse-symphony/symphony/coa/pkg/logger"
+	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 )
 
@@ -149,10 +151,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
 			if err != nil {
 				log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
-				targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
-				targetResultMessage := fmt.Sprintf("failed to create provider %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], err)
-				targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
-				return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, make(map[string]model.ComponentResultSpec))
+				return f.publishStepResult(ctx, stepEnvelope, false, err, make(map[string]model.ComponentResultSpec))
 			}
 			log.InfoCtx(ctx, "deployment-step begin to apply step ")
 
@@ -161,59 +160,88 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				log.InfoCtx(ctx, "begin to phase get")
 				log.InfoCtx(ctx, "begin to get")
 				// if for remote
+				if true {
+					providerGetRequest := &ProviderGetRequest{
+						AgentRequest: AgentRequest{
+							Provider: stepEnvelope.Step.Role,
+							Action:   "get",
+						},
+						References: stepEnvelope.Step.Components,
+					}
+					f.StagingManager.QueueProvider.Enqueue("targetName-Namespace", providerGetRequest)
 
-				f.StagingManager.QueueProvider.Enqueue("get", stepEnvelope)
-				components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, stepEnvelope.Deployment, stepEnvelope.Step.Components)
-				if stepError != nil {
-					// targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
-					// targetResultMessage := fmt.Sprintf("An error occurred in provider get %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
-					// targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
-					return stepError
-				}
-				log.InfoCtx(ctx, "get components %v", components)
-				stepEnvelope.DeploymentState.Components = components
+				} else {
+					components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, stepEnvelope.Deployment, stepEnvelope.Step.Components)
+					if stepError != nil {
+						// targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+						// targetResultMessage := fmt.Sprintf("An error occurred in provider get %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
+						// targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
+						return stepError
+					}
+					log.InfoCtx(ctx, "get components %v", components)
+					stepEnvelope.DeploymentState.Components = components
 
-				log.InfoCtx(ctx, "begin to publishdeployment-step with plan id %s", stepEnvelope.PlanId)
-				stepResult := &StepResult{
-					Step:           stepEnvelope.Step,
-					PlanId:         stepEnvelope.PlanId,
-					StepId:         stepEnvelope.StepId,
-					Success:        true,
-					Phase:          PhaseGet,
-					retComoponents: components,
+					log.InfoCtx(ctx, "begin to publishdeployment-step with plan id %s", stepEnvelope.PlanId)
+					stepResult := &StepResult{
+						Target:         stepEnvelope.Step.Target,
+						PlanId:         stepEnvelope.PlanId,
+						StepId:         stepEnvelope.StepId,
+						Success:        true,
+						Remove:         stepEnvelope.Remove,
+						Phase:          PhaseGet,
+						retComoponents: components,
+					}
+					f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+						Metadata: map[string]string{
+							"namespace": stepEnvelope.Namespace,
+						},
+						Body:    stepResult,
+						Context: ctx,
+					})
 				}
-				f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-					Body:    stepResult,
-					Context: ctx,
-				})
 			case PhaseApply:
 				// if remote
-				f.StagingManager.QueueProvider.Enqueue("apply", stepEnvelope)
+				if true {
+					providApplyRequest := &ProviderApplyRequest{
+						AgentRequest: AgentRequest{
+							Provider: stepEnvelope.Step.Role,
+							Action:   "get",
+						},
+						Deployment: stepEnvelope.Deployment,
+						IsDryRun:   stepEnvelope.Deployment.IsDryRun,
+					}
+					f.StagingManager.QueueProvider.Enqueue("targetName-Namespace", providApplyRequest)
+				} else {
+					log.InfoCtx(ctx, "begin to phase apply")
+					componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
+					log.InfoCtx(ctx, "need to deploy a deployment")
 
-				log.InfoCtx(ctx, "begin to phase apply")
-				componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
-				log.InfoCtx(ctx, "need to deploy a deployment")
-
-				if stepError != nil {
-					targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
-					targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
-					targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}
-					return f.publishStepResult(ctx, stepEnvelope, false, targetResultSpec, componentResults)
+					if stepError != nil {
+						// targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepEnvelope.Remove])
+						// targetResultMessage := fmt.Sprintf("An error occurred in %s, err: %s", deploymentTypeMap[stepEnvelope.Remove], stepError.Error())
+						// targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage, ComponentResults: componentResults}
+						return f.publishStepResult(ctx, stepEnvelope, false, stepError, componentResults)
+					}
+					log.InfoCtx(ctx, "deployment-step deploy done ")
+					// targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
+					log.InfoCtx(ctx, "begin to publish result ")
+					f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+						Metadata: map[string]string{
+							"namespace": stepEnvelope.Namespace,
+						},
+						Body: StepResult{
+							Target:  stepEnvelope.Step.Target,
+							PlanId:  stepEnvelope.PlanId,
+							StepId:  stepEnvelope.StepId,
+							Success: true,
+							Remove:  stepEnvelope.Remove,
+							// TargetResultSpec: targetResultSpec,
+							Components: componentResults,
+							Timestamp:  time.Now(),
+						},
+					})
 				}
-				log.InfoCtx(ctx, "deployment-step deploy done ")
-				targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: componentResults}
-				log.InfoCtx(ctx, "begin to publish result ")
-				return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-					Body: StepResult{
-						Step:             stepEnvelope.Step,
-						PlanId:           stepEnvelope.PlanId,
-						StepId:           stepEnvelope.StepId,
-						Success:          true,
-						TargetResultSpec: targetResultSpec,
-						Components:       componentResults,
-						Timestamp:        time.Now(),
-					},
-				})
+
 			}
 			return nil
 		},
@@ -269,81 +297,287 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 		IsSelf:     true,
 	})
 }
-func (f *FederationVendor) onGetRequest(agentRequest AgentRequest) (*ProviderGetRequest, *ProviderApplyRequest, error) {
-
-	switch agentRequest.Action {
-	case "get":
-		queueElement, err := f.StagingManager.QueueProvider.Dequeue("get")
-		if err != nil {
-			return nil, nil, err
-		}
-		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
-			providerGetRequest := &ProviderGetRequest{
-				AgentRequest: agentRequest,
-				Deployment:   stepEnvelope.Deployment,
-				References:   stepEnvelope.Step.Components,
-			}
-			return providerGetRequest, nil, nil
-		}
-	case "apply":
-		queueElement, err := f.StagingManager.QueueProvider.Dequeue("apply")
-		if err != nil {
-			return nil, nil, err
-		}
-		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
-			providerGetRequest := &ProviderApplyRequest{
-				AgentRequest: agentRequest,
-				Step:         stepEnvelope.Step,
-				IsDryRun:     stepEnvelope.Deployment.IsDryRun,
-			}
-			return nil, providerGetRequest, nil
+func (f *FederationVendor) onGetRequest(request v1alpha2.COARequest) v1alpha2.COAResponse {
+	ctx, span := observability.StartSpan("Solution Vendor", request.Context, &map[string]string{
+		"method": "onGetRequest",
+	})
+	defer span.End()
+	var agentRequest AgentRequest
+	target := request.Parameters["target"]
+	namespace := request.Parameters["namespace"]
+	err := json.Unmarshal(request.Body, &agentRequest)
+	if err != nil {
+		sLog.ErrorfCtx(ctx, "V (Solution): onApplyDeployment failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte(err.Error()),
 		}
 	}
-	return nil, nil, nil
+	return f.doGetFromQueue(ctx, target, namespace)
 }
 
-func (f *FederationVendor) onHandleRequest(agentRequest AgentRequest) (*ProviderGetRequest, *ProviderApplyRequest, error) {
-
-	switch agentRequest.Action {
-	case "get":
-		queueElement, err := f.StagingManager.QueueProvider.Dequeue("get")
-		if err != nil {
-			return nil, nil, err
-		}
-		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
-			providerGetRequest := &ProviderGetRequest{
-				AgentRequest: agentRequest,
-				Deployment:   stepEnvelope.Deployment,
-				References:   stepEnvelope.Step.Components,
-			}
-			return providerGetRequest, nil, nil
-		}
-	case "apply":
-		queueElement, err := f.StagingManager.QueueProvider.Dequeue("apply")
-		if err != nil {
-			return nil, nil, err
-		}
-		if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
-			providerGetRequest := &ProviderApplyRequest{
-				AgentRequest: agentRequest,
-				Step:         stepEnvelope.Step,
-				IsDryRun:     stepEnvelope.Deployment.IsDryRun,
-			}
-			return nil, providerGetRequest, nil
+func (f *FederationVendor) onGetResponse(request v1alpha2.COARequest) v1alpha2.COAResponse {
+	ctx, span := observability.StartSpan("Solution Vendor", request.Context, &map[string]string{
+		"method": "onGetResponse",
+	})
+	defer span.End()
+	var asyncResult AsyncResult
+	err := json.Unmarshal(request.Body, &asyncResult)
+	if err != nil {
+		sLog.ErrorfCtx(ctx, "V (FederationVendor): onGetResponse failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte(err.Error()),
 		}
 	}
-	return nil, nil, nil
+	return f.doHandleResponse(ctx, asyncResult)
 }
-func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, spec model.TargetResultSpec, components map[string]model.ComponentResultSpec) error {
+func (f *FederationVendor) doHandleResponse(ctx context.Context, asyncResult AsyncResult) v1alpha2.COAResponse {
+	// get opertaion Id
+	operationId := asyncResult.OperationID
+	// get related info from redis- todo: timeout
+	operationBody, err := f.getOperationState(ctx, operationId)
+	if err != nil {
+		sLog.ErrorfCtx(ctx, "V (FederationVendor): onGetResponse failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte(err.Error()),
+		}
+	}
+
+	switch operationBody.Action {
+	case PhaseGet:
+		// send to stp result
+		var response []model.ComponentSpec
+		err := json.Unmarshal(asyncResult.Body, &response)
+		if err != nil {
+			return v1alpha2.COAResponse{
+				State: v1alpha2.InternalError,
+				Body:  []byte(err.Error()),
+			}
+		}
+		if asyncResult.Error != nil {
+			f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+				Metadata: map[string]string{
+					"namespace": operationBody.NameSpace,
+				},
+				Body: StepResult{
+					Target:         operationBody.Target,
+					PlanId:         operationBody.PlanId,
+					StepId:         operationBody.StepId,
+					Success:        false,
+					retComoponents: response,
+					Timestamp:      time.Now(),
+					Error:          asyncResult.Error,
+				},
+			})
+		} else {
+			f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+				Metadata: map[string]string{
+					"namespace": operationBody.NameSpace,
+				},
+				Body: StepResult{
+					Target:         operationBody.Target,
+					PlanId:         operationBody.PlanId,
+					StepId:         operationBody.StepId,
+					Success:        true,
+					retComoponents: response,
+					Timestamp:      time.Now(),
+				},
+			})
+		}
+		deleteRequest := states.DeleteRequest{
+			ID: operationId,
+		}
+
+		err = f.StagingManager.StateProvider.Delete(ctx, deleteRequest)
+		if err != nil {
+			return v1alpha2.COAResponse{
+				State:       v1alpha2.BadRequest,
+				Body:        []byte("{\"result\":\"delete operation Id failed\"}"),
+				ContentType: "application/json",
+			}
+		}
+		return v1alpha2.COAResponse{
+			State:       v1alpha2.OK,
+			Body:        []byte("{\"result\":\"200 - get response successfully\"}"),
+			ContentType: "application/json",
+		}
+	case PhaseApply:
+		var response map[string]model.ComponentResultSpec
+		err := json.Unmarshal(asyncResult.Body, &response)
+		if err != nil {
+			return v1alpha2.COAResponse{
+				State: v1alpha2.InternalError,
+				Body:  []byte(err.Error()),
+			}
+		}
+		if asyncResult.Error != nil {
+			f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+				Metadata: map[string]string{
+					"namespace": operationBody.NameSpace,
+				},
+				Body: StepResult{
+					Target:     operationBody.Target,
+					PlanId:     operationBody.PlanId,
+					StepId:     operationBody.StepId,
+					Success:    true,
+					Components: response,
+					Timestamp:  time.Now(),
+				},
+			})
+		} else {
+			f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+				Metadata: map[string]string{
+					"namespace": operationBody.NameSpace,
+				},
+				Body: StepResult{
+					Target:     operationBody.Target,
+					PlanId:     operationBody.PlanId,
+					StepId:     operationBody.StepId,
+					Success:    true,
+					Components: response,
+					Timestamp:  time.Now(),
+				},
+			})
+		}
+		deleteRequest := states.DeleteRequest{
+			ID: operationId,
+		}
+
+		err = f.StagingManager.StateProvider.Delete(ctx, deleteRequest)
+		if err != nil {
+			return v1alpha2.COAResponse{
+				State:       v1alpha2.BadRequest,
+				Body:        []byte("{\"result\":\"delete operation Id failed\"}"),
+				ContentType: "application/json",
+			}
+		}
+		return v1alpha2.COAResponse{
+			State:       v1alpha2.OK,
+			Body:        []byte("{\"result\":\"200 - get response successfully\"}"),
+			ContentType: "application/json",
+		}
+	}
+	return v1alpha2.COAResponse{
+		State:       v1alpha2.MethodNotAllowed,
+		Body:        []byte("{\"result\":\"405 - method not allowed\"}"),
+		ContentType: "application/json",
+	}
+}
+func (f *FederationVendor) doGetFromQueue(ctx context.Context, target string, namespace string) v1alpha2.COAResponse {
+	ctx, span := observability.StartSpan("Solution Vendor", ctx, &map[string]string{
+		"method": "doGetFromQueue",
+	})
+	sLog.InfoCtx(ctx, "V (FederationVendor): getFromqueue")
+	defer span.End()
+
+	queueElement, err := f.StagingManager.QueueProvider.Dequeue(fmt.Sprintf("%s-%s", target, namespace))
+	if err != nil {
+		sLog.ErrorfCtx(ctx, "V (FederationVendor): getqueue failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte(err.Error()),
+		}
+	}
+	if stepEnvelope, ok := queueElement.(StepEnvelope); ok {
+		operationId := uuid.New().String()
+		err := f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanId, stepEnvelope.Step.Target, stepEnvelope.Phase, stepEnvelope.Namespace)
+		if err != nil {
+			return v1alpha2.COAResponse{
+				State:       v1alpha2.Accepted,
+				Body:        []byte("{\"result\":\"upsert operationId failed\"}"),
+				ContentType: "application/json",
+			}
+		}
+		// judge it is any type
+		if request, ok := queueElement.(ProviderGetRequest); ok {
+			request.OperationID = operationId
+			data, _ := json.Marshal(request)
+			return v1alpha2.COAResponse{
+				State:       v1alpha2.OK,
+				Body:        data,
+				ContentType: "application/json",
+			}
+		}
+		if request, ok := queueElement.(ProviderApplyRequest); ok {
+			request.OperationID = operationId
+			data, _ := json.Marshal(request)
+			return v1alpha2.COAResponse{
+				State:       v1alpha2.OK,
+				Body:        data,
+				ContentType: "application/json",
+			}
+		}
+	}
+	resp := v1alpha2.COAResponse{
+		State:       v1alpha2.Accepted,
+		Body:        []byte("{\"result\":\"No task to execute\"}"),
+		ContentType: "application/json",
+	}
+	observ_utils.UpdateSpanStatusFromCOAResponse(span, resp)
+	return resp
+}
+
+func (f *FederationVendor) upsertOperationState(ctx context.Context, operationId string, stepId int, planId string, target string, action JobPhase, namespace string) error {
+	// 生成一个随机整数
+	upsertRequest := states.UpsertRequest{
+		Value: states.StateEntry{
+			ID: operationId,
+			Body: map[string]interface{}{
+				"StepId":    stepId,
+				"PlanId":    planId,
+				"Target":    target,
+				"Action":    action,
+				"namespace": namespace,
+			}},
+	}
+	_, err := f.StagingManager.StateProvider.Upsert(ctx, upsertRequest)
+	return err
+}
+func (f *FederationVendor) getOperationState(ctx context.Context, operationId string) (OperationBody, error) {
+	// 生成一个随机整数
+	getRequest := states.GetRequest{
+		ID: operationId,
+	}
+	var entry states.StateEntry
+	entry, err := f.StagingManager.StateProvider.Get(ctx, getRequest)
+	if err != nil {
+		return OperationBody{}, err
+	}
+	var ret OperationBody
+	ret, err = f.getOperationBody(entry.Body)
+	if err != nil {
+		log.ErrorfCtx(ctx, "Failed to convert to operation state for %s ", operationId)
+		return OperationBody{}, err
+	}
+
+	return ret, err
+}
+func (f *FederationVendor) getOperationBody(body interface{}) (OperationBody, error) {
+	var operationBody OperationBody
+	bytes, _ := json.Marshal(body)
+	err := json.Unmarshal(bytes, &operationBody)
+	if err != nil {
+		return OperationBody{}, err
+	}
+	return operationBody, nil
+}
+
+func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, Error error, components map[string]model.ComponentResultSpec) error {
 	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+		Metadata: map[string]string{
+			"namespace": stepEnvelope.Namespace,
+		},
 		Body: StepResult{
-			Step:             stepEnvelope.Step,
-			PlanId:           stepEnvelope.PlanId,
-			StepId:           stepEnvelope.StepId,
-			Success:          success,
-			TargetResultSpec: spec,
-			Components:       components,
-			Timestamp:        time.Now(),
+			Target:     stepEnvelope.Step.Target,
+			PlanId:     stepEnvelope.PlanId,
+			StepId:     stepEnvelope.StepId,
+			Success:    success,
+			Components: components,
+			Timestamp:  time.Now(),
+			Remove:     stepEnvelope.Remove,
+			Error:      Error,
 		},
 	})
 }
@@ -386,6 +620,19 @@ func (f *FederationVendor) GetEndpoints() []v1alpha2.Endpoint {
 			Route:   route + "/k8shook",
 			Version: f.Version,
 			Handler: f.onK8sHook,
+		},
+		{
+			Methods: []string{fasthttp.MethodGet},
+			Route:   route + "/tasks",
+			Version: f.Version,
+			Handler: f.onGetRequest,
+		},
+		{
+			Methods: []string{fasthttp.MethodPost},
+			// taskId is planId
+			Route:   route + "/task/getResult",
+			Version: f.Version,
+			Handler: f.onGetResponse,
 		},
 	}
 }

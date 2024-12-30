@@ -66,11 +66,7 @@ type PlanManager struct {
 	Plans   sync.Map // map[string] *Planstate
 	Timeout time.Duration
 }
-type AgentRequest struct {
-	OperationID string `json:"operationID"`
-	Provider    string `json:"provider"`
-	Action      string `json:"action"`
-}
+
 type StepResult struct {
 	Step             model.DeploymentStep                 `json:"step"`
 	Success          bool                                 `json:"success"`
@@ -78,12 +74,23 @@ type StepResult struct {
 	Components       map[string]model.ComponentResultSpec `json:"components"`
 	PlanId           string                               `json:"planId"`
 	StepId           int                                  `json:"stepId"`
+	Remove           bool                                 `json:"remove"`
 	Timestamp        time.Time                            `json:"timestamp"`
 	ApplyResult      interface{}                          `json:"applyresult"`
 	GetResult        interface{}                          `json:"getresult"`
 	Phase            JobPhase
 	retComoponents   []model.ComponentSpec
+	Error            error `json:"error,omitempty"`
+	Target           string
+	Namespace        string `json:"namespace"`
 }
+
+type AgentRequest struct {
+	OperationID string `json:"operationID"`
+	Provider    string `json:"provider"`
+	Action      string `json:"action"`
+}
+
 type ProviderGetRequest struct {
 	AgentRequest
 	Deployment model.DeploymentSpec  `json:"deployment"`
@@ -93,10 +100,30 @@ type ProviderGetRequest struct {
 type ProviderApplyRequest struct {
 	AgentRequest
 	Deployment model.DeploymentSpec `json:"deployment"`
-	Step       model.DeploymentStep `json:"step"`
 	IsDryRun   bool                 `json:"isDryRun,omitempty"`
 }
+type ProviderGetValidationRuleRequest struct {
+	AgentRequest
+}
 
+type AsyncResult struct {
+	OperationID string `json:"operationID"`
+	Error       error  `json:"error,omitempty"`
+	Body        []byte `json:"body"`
+}
+
+type SymphonyEndpoint struct {
+	RequestEndpoint  string `json:"requestEndpoint,omitempty"`
+	ResponseEndpoint string `json:"responseEndpoint,omitempty"`
+}
+
+type OperationBody struct {
+	StepId    int
+	PlanId    string
+	Target    string
+	Action    JobPhase
+	NameSpace string
+}
 type PlanState struct {
 	ID                   string `json:"opeateionId"`
 	PlanId               string `json:"planId"`

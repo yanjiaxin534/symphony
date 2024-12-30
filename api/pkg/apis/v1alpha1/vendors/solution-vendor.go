@@ -23,6 +23,7 @@ import (
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/providers/pubsub"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/vendors"
+	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 )
 
@@ -278,8 +279,8 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 		planState := &PlanState{
-			// PlanId:               uuid.New().String(),
-			PlanId:               "000",
+			PlanId: uuid.New().String(),
+			// PlanId:               "000",
 			Phase:                PhaseGet,
 			Status:               "pending",
 			ExpireTime:           time.Now().Add(30 * time.Minute),
@@ -299,7 +300,7 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 				ContentType: "application/json",
 			})
 		}
-		log.InfoCtx(ctx, "begin to 2puhlish state %s", planState.PlanId)
+		log.InfoCtx(ctx, "begin to publish state %s", planState.PlanId)
 		initalPlan, err := solution.PlanForDeployment(deployment, state)
 		if err != nil {
 			return observ_utils.CloseSpanWithCOAResponse(span, v1alpha2.COAResponse{

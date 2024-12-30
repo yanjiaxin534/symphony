@@ -635,11 +635,22 @@ func (s *StageVendor) updatePlanState(ctx context.Context, planState *PlanState,
 		log.InfoCtx(ctx, " update phase get %v ", stepResult.retComoponents)
 		planState.StepStates[stepResult.StepId].GetResult = stepResult.retComoponents
 	case PhaseApply:
-		log.InfoCtx(ctx, " update phase apply %v ", stepResult.TargetResultSpec)
-		//update target
-		log.InfoCtx(ctx, "update plan state target spec %v ", stepResult.TargetResultSpec)
+
 		// question about overried???
-		planState.Summary.TargetResults[stepResult.Step.Target] = stepResult.TargetResultSpec
+		if stepResult.Success == false {
+			targetResultStatus := fmt.Sprintf("%s Failed", deploymentTypeMap[stepResult.Remove])
+			targetResultMessage := fmt.Sprintf("failed to create provider %s, err: %s", deploymentTypeMap[stepResult.Remove], stepResult.Error)
+			targetResultSpec := model.TargetResultSpec{Status: targetResultStatus, Message: targetResultMessage}
+			planState.Summary.TargetResults[stepResult.Step.Target] = targetResultSpec
+
+		} else {
+			targetResultSpec := model.TargetResultSpec{Status: "OK", Message: "", ComponentResults: stepResult.Components}
+			log.InfoCtx(ctx, "begin to publish result ")
+			log.InfoCtx(ctx, " update phase apply %v ", targetResultSpec)
+			//update target
+			log.InfoCtx(ctx, "update plan state target spec %v ", targetResultSpec)
+			planState.Summary.TargetResults[stepResult.Step.Target] = targetResultSpec
+		}
 
 		// update summary
 		if err := s.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning); err != nil {
