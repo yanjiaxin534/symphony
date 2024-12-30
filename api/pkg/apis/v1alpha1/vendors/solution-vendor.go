@@ -16,6 +16,7 @@ import (
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/solution"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
+	api_utils "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/managers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/observability"
@@ -267,20 +268,19 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		// // get action
 		delete := request.Parameters["delete"]
 		// // get target name
-		// targetName := ""
-		// if request.Metadata != nil {
-		// 	if v, ok := request.Metadata["active-target"]; ok {
-		// 		targetName = v
-		// 	}
-		// }
+		targetName := ""
+		if request.Metadata != nil {
+			if v, ok := request.Metadata["active-target"]; ok {
+				targetName = v
+			}
+		}
 		// todo here
 		// summary, err := c.SolutionManager.Reconcile(ctx, deployment, delete == "true", namespace, targetName)
 		log.InfoCtx(ctx, "begin to puhlish state hhhh")
 		previousDesiredState := c.SolutionManager.GetPreviousState(ctx, deployment.Instance.ObjectMeta.Name, namespace)
 
 		planState := &PlanState{
-			PlanId: uuid.New().String(),
-			// PlanId:               "000",
+			PlanId:               uuid.New().String(),
 			Phase:                PhaseGet,
 			Status:               "pending",
 			ExpireTime:           time.Now().Add(30 * time.Minute),
@@ -311,16 +311,23 @@ func (c *SolutionVendor) onReconcile(request v1alpha2.COARequest) v1alpha2.COARe
 		}
 
 		// initialize step states
-		planState.StepStates = make([]StepState, len(initalPlan.Steps))
-		for i, step := range initalPlan.Steps {
-			planState.StepStates[i] = StepState{
-				Index:      i,
+		var stepList []StepState
+		for _, step := range initalPlan.Steps {
+			if c.SolutionManager.IsTarget && !api_utils.ContainsString(c.SolutionManager.TargetNames, step.Target) {
+				continue
+			}
+			if targetName != "" && targetName != step.Target {
+				continue
+			}
+			stepList = append(stepList, StepState{
+				Index:      len(stepList),
 				Target:     step.Target,
 				Role:       step.Role,
 				Components: make([]model.ComponentStep, 0),
 				State:      "Running",
-			}
+			})
 		}
+		planState.StepStates = stepList
 		log.InfoCtx(ctx, "begin to puhlish state %s", planState.PlanId)
 		c.Vendor.Context.Publish("publish-state", v1alpha2.Event{
 			Body:    planState,
