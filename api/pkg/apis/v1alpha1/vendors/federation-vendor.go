@@ -188,18 +188,11 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 				log.ErrorfCtx(ctx, "V (Federation): failed to unmarshal step envelope: %v", err)
 				return err
 			}
-			// get provider todo : is dry run
-			provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
-			if err != nil {
-				log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
-				return f.publishStepResult(ctx, stepEnvelope, false, err, make(map[string]model.ComponentResultSpec))
-			}
-			log.InfoCtx(ctx, "deployment-step begin to apply step ")
 
-			switch stepEnvelope.Phase {
-			case PhaseGet:
-				// if FindAgentFromDeploymentState(stepEnvelope.DeploymentState, stepEnvelope.Step.Target) {
-				if true {
+			log.InfoCtx(ctx, "deployment-step begin to apply step ")
+			if FindAgentFromDeploymentState(stepEnvelope.DeploymentState, stepEnvelope.Step.Target) {
+				switch stepEnvelope.Phase {
+				case PhaseGet:
 					providerGetRequest := &ProviderGetRequest{
 						AgentRequest: AgentRequest{
 							Provider: stepEnvelope.Step.Role,
@@ -207,42 +200,68 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 						},
 						References: stepEnvelope.Step.Components,
 					}
-					f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.Namespace), providerGetRequest)
+					f.StagingManager.QueueProvider.Enqueue("targetName-Namespace", providerGetRequest)
 					log.InfoCtx(ctx, "V(Federation): enqueue get %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.Namespace, providerGetRequest)
-				} else {
-					log.InfoCtx(ctx, "get step components %+v", stepEnvelope.Step.Components)
-					log.InfoCtx(ctx, "get step components %+v", stepEnvelope.Deployment)
-					dep := stepEnvelope.Deployment
-					dep.ActiveTarget = stepEnvelope.Step.Target
-					components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, dep, stepEnvelope.Step.Components)
-					success := true
-					if stepError != nil {
-						success = false
-					}
-					log.InfoCtx(ctx, "get component %+v", components)
-					stepEnvelope.DeploymentState.Components = components
-					stepResult := &StepResult{
-						Target:         stepEnvelope.Step.Target,
-						PlanId:         stepEnvelope.PlanId,
-						StepId:         stepEnvelope.StepId,
-						Success:        success,
-						Remove:         stepEnvelope.Remove,
-						Phase:          PhaseGet,
-						retComoponents: components,
-						Error:          stepError,
-					}
-					f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-						Metadata: map[string]string{
-							"namespace": stepEnvelope.Namespace,
+				case PhaseApply:
+					providApplyRequest := &ProviderApplyRequest{
+						AgentRequest: AgentRequest{
+							Provider: stepEnvelope.Step.Role,
+							Action:   string(PhaseApply),
 						},
-						Body:    stepResult,
-						Context: ctx,
-					})
+						Deployment: stepEnvelope.Deployment,
+						IsDryRun:   stepEnvelope.Deployment.IsDryRun,
+					}
+					log.InfoCtx(ctx, "V(Federation): enqueue %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.Namespace, providApplyRequest)
+					f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.Namespace), providApplyRequest)
 				}
+				return nil
+			}
+			switch stepEnvelope.Phase {
+			case PhaseGet:
+				// get provider todo : is dry run
+				provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
+				if err != nil {
+					log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
+					return f.publishStepResult(ctx, stepEnvelope, false, err, make(map[string]model.ComponentResultSpec))
+				}
+				log.InfoCtx(ctx, "get step components %+v", stepEnvelope.Step.Components)
+				log.InfoCtx(ctx, "get step components %+v", stepEnvelope.Deployment)
+				dep := stepEnvelope.Deployment
+				dep.ActiveTarget = stepEnvelope.Step.Target
+				components, stepError := (provider.(tgt.ITargetProvider)).Get(ctx, dep, stepEnvelope.Step.Components)
+				success := true
+				if stepError != nil {
+					success = false
+				}
+				log.InfoCtx(ctx, "get component %+v", components)
+				stepEnvelope.DeploymentState.Components = components
+				stepResult := &StepResult{
+					Target:         stepEnvelope.Step.Target,
+					PlanId:         stepEnvelope.PlanId,
+					StepId:         stepEnvelope.StepId,
+					Success:        success,
+					Remove:         stepEnvelope.Remove,
+					Phase:          PhaseGet,
+					retComoponents: components,
+					Error:          stepError,
+				}
+				f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+					Metadata: map[string]string{
+						"namespace": stepEnvelope.Namespace,
+					},
+					Body:    stepResult,
+					Context: ctx,
+				})
 			case PhaseApply:
 				previousDesiredState := stepEnvelope.PlanState.PreviousDesiredState
 				currentState := stepEnvelope.PlanState.CurrentState
 				step := stepEnvelope.Step
+				// get provider todo : is dry run
+				provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
+				if err != nil {
+					log.ErrorfCtx(ctx, " M (Solution): failed to create provider & Failed to save summary progress: %v", err)
+					return f.publishStepResult(ctx, stepEnvelope, false, err, make(map[string]model.ComponentResultSpec))
+				}
 				if previousDesiredState != nil {
 					testState := solution.MergeDeploymentStates(&previousDesiredState.State, currentState)
 					if f.SolutionManager.CanSkipStep(ctx, step, step.Target, provider.(tgt.ITargetProvider), previousDesiredState.State.Components, testState) {
@@ -264,37 +283,24 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 						return nil
 					}
 				}
-				if FindAgentFromDeploymentState(stepEnvelope.DeploymentState, stepEnvelope.Step.Target) {
-					providApplyRequest := &ProviderApplyRequest{
-						AgentRequest: AgentRequest{
-							Provider: stepEnvelope.Step.Role,
-							Action:   string(PhaseApply),
-						},
-						Deployment: stepEnvelope.Deployment,
-						IsDryRun:   stepEnvelope.Deployment.IsDryRun,
-					}
-					log.InfoCtx(ctx, "V(Federation): enqueue %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.Namespace, providApplyRequest)
-					f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.Namespace), providApplyRequest)
-				} else {
-					componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
-					if stepError != nil {
-						return f.publishStepResult(ctx, stepEnvelope, false, stepError, componentResults)
-					}
-					f.Vendor.Context.Publish("step-result", v1alpha2.Event{
-						Metadata: map[string]string{
-							"namespace": stepEnvelope.Namespace,
-						},
-						Body: StepResult{
-							Target:     stepEnvelope.Step.Target,
-							PlanId:     stepEnvelope.PlanId,
-							StepId:     stepEnvelope.StepId,
-							Success:    true,
-							Remove:     stepEnvelope.Remove,
-							Components: componentResults,
-							Timestamp:  time.Now(),
-						},
-					})
+				componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
+				if stepError != nil {
+					return f.publishStepResult(ctx, stepEnvelope, false, stepError, componentResults)
 				}
+				f.Vendor.Context.Publish("step-result", v1alpha2.Event{
+					Metadata: map[string]string{
+						"namespace": stepEnvelope.Namespace,
+					},
+					Body: StepResult{
+						Target:     stepEnvelope.Step.Target,
+						PlanId:     stepEnvelope.PlanId,
+						StepId:     stepEnvelope.StepId,
+						Success:    true,
+						Remove:     stepEnvelope.Remove,
+						Components: componentResults,
+						Timestamp:  time.Now(),
+					},
+				})
 
 			}
 			return nil
