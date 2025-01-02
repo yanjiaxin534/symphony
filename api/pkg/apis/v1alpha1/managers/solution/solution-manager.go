@@ -678,7 +678,7 @@ func (s *SolutionManager) GetTargetStateForStep(target string, deployment model.
 	}
 	return targetSpec
 }
-func (s *SolutionManager) saveSummary(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, state model.SummaryState, namespace string) error {
+func (s *SolutionManager) SaveSummary(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, state model.SummaryState, namespace string) error {
 	// TODO: delete this state when time expires. This should probably be invoked by the vendor (via GetSummary method, for instance)
 	log.DebugfCtx(ctx, " M (Solution): saving summary, objectName: %s, state: %s, namespace: %s, jobid: %s, hash %s, targetCount %d, successCount %d",
 		objectName, state, namespace, summary.JobID, hash, summary.TargetCount, summary.SuccessCount)
@@ -726,11 +726,11 @@ func (s *SolutionManager) saveSummary(ctx context.Context, objectName string, ge
 }
 
 func (s *SolutionManager) saveSummaryProgress(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, namespace string) error {
-	return s.saveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateRunning, namespace)
+	return s.SaveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateRunning, namespace)
 }
 
 func (s *SolutionManager) ConcludeSummary(ctx context.Context, objectName string, generation string, hash string, summary model.SummarySpec, namespace string) error {
-	return s.saveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateDone, namespace)
+	return s.SaveSummary(ctx, objectName, generation, hash, summary, model.SummaryStateDone, namespace)
 }
 
 func (s *SolutionManager) CanSkipStep(ctx context.Context, step model.DeploymentStep, target string, provider tgt.ITargetProvider, currentComponents []model.ComponentSpec, state model.DeploymentState) bool {
