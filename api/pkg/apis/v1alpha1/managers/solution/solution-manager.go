@@ -40,6 +40,16 @@ var (
 	apiOperationMetrics *metrics.Metrics
 )
 
+type HeartbeatManager struct {
+	StopCh chan struct{}
+}
+
+func NewHeartbeatManager() *HeartbeatManager {
+	return &HeartbeatManager{
+		StopCh: make(chan struct{}),
+	}
+}
+
 const (
 	SYMPHONY_AGENT string = "/symphony-agent:"
 	ENV_NAME       string = "SYMPHONY_AGENT_ADDRESS"
@@ -57,13 +67,14 @@ const (
 
 type SolutionManager struct {
 	managers.Manager
-	TargetProviders map[string]tgt.ITargetProvider
-	StateProvider   states.IStateProvider
-	ConfigProvider  config.IExtConfigProvider
-	SecretProvider  secret.ISecretProvider
-	IsTarget        bool
-	TargetNames     []string
-	ApiClientHttp   api_utils.ApiClient
+	TargetProviders  map[string]tgt.ITargetProvider
+	StateProvider    states.IStateProvider
+	ConfigProvider   config.IExtConfigProvider
+	SecretProvider   secret.ISecretProvider
+	IsTarget         bool
+	TargetNames      []string
+	ApiClientHttp    api_utils.ApiClient
+	HeartbeatManager *HeartbeatManager
 }
 
 type SolutionManagerDeploymentState struct {
@@ -96,7 +107,7 @@ func (s *SolutionManager) Init(context *contexts.VendorContext, config managers.
 	} else {
 		return err
 	}
-
+	s.HeartbeatManager = NewHeartbeatManager()
 	secretProvider, err := managers.GetSecretProvider(config, providers)
 	if err == nil {
 		s.SecretProvider = secretProvider
