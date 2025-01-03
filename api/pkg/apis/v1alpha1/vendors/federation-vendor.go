@@ -190,8 +190,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 			}
 			switch stepEnvelope.Phase {
 			case PhaseGet:
-				if FindAgentFromDeploymentState(stepEnvelope.Step.Components) {
-					// if true {
+				FindAgentFromDeploymentState(stepEnvelope.Step.Components)
+				// if FindAgentFromDeploymentState(stepEnvelope.Step.Components) {
+				if true {
 					operationId := uuid.New().String()
 					providerGetRequest := &ProviderGetRequest{
 						AgentRequest: AgentRequest{
@@ -243,7 +244,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 					})
 				}
 			case PhaseApply:
-				if FindAgentFromDeploymentState(stepEnvelope.Step.Components) {
+				FindAgentFromDeploymentState(stepEnvelope.Step.Components)
+				if true {
+					// if FindAgentFromDeploymentState(stepEnvelope.Step.Components) {
 					operationId := uuid.New().String()
 					providApplyRequest := &ProviderApplyRequest{
 						AgentRequest: AgentRequest{
@@ -255,6 +258,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 						Step:       stepEnvelope.Step,
 						IsDryRun:   stepEnvelope.Deployment.IsDryRun,
 					}
+					stepEnvelope.PlanState.Summary.PlannedDeployment++
 					log.InfoCtx(ctx, "V(Federation): enqueue %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.Namespace, providApplyRequest)
 					f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.Namespace), providApplyRequest)
 					err = f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanId, stepEnvelope.Step.Target, stepEnvelope.Phase, stepEnvelope.Namespace, stepEnvelope.Remove)
@@ -293,6 +297,7 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 							return nil
 						}
 					}
+					stepEnvelope.PlanState.Summary.PlannedDeployment++
 					componentResults, stepError := (provider.(tgt.ITargetProvider)).Apply(ctx, stepEnvelope.Deployment, stepEnvelope.Step, stepEnvelope.Deployment.IsDryRun)
 					if stepError != nil {
 						return f.publishStepResult(ctx, stepEnvelope, false, stepError, componentResults)
@@ -327,17 +332,17 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 	})
 }
 func FindAgentFromDeploymentState(stepComponents []model.ComponentStep) bool {
-	return true
-	// log.Info("compare between state and target name %+v", stepComponents)
-	// for _, component := range stepComponents {
-	// 	log.Info("compare between state and target name %+v, %s", component, component.Component.Name)
-	// 	if component.Component.Type == "remote-agent" {
-	// 		log.Info("It is remote call ")
-	// 		return true
-	// 	}
+	// return true
+	log.Info("compare between state and target name %+v", stepComponents)
+	for _, component := range stepComponents {
+		log.Info("compare between state and target name %+v, %s , %s ", component, component.Component.Name, component.Component.Type)
+		if component.Component.Type == "remote-agent" {
+			log.Info("It is remote call ")
+			return true
+		}
 
-	// }
-	// return false
+	}
+	return false
 }
 func (f *FederationVendor) publishStepResult(ctx context.Context, stepEnvelope StepEnvelope, success bool, Error error, components map[string]model.ComponentResultSpec) error {
 	return f.Vendor.Context.Publish("step-result", v1alpha2.Event{

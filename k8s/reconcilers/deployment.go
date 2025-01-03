@@ -530,15 +530,16 @@ func (r *DeploymentReconciler) updateObjectStatus(ctx context.Context, object Re
 }
 
 func (r *DeploymentReconciler) determineProvisioningStatus(ctx context.Context, object Reconcilable, summaryResult *model.SummaryResult, opts patchStatusOptions, log logr.Logger) utilsmodel.ProvisioningStatus {
+	log.Info("begin to determin provision status summary result %s", summaryResult.Summary.JobID)
 	if opts.terminalErr != nil {
 		// add more details of the terminal error to the status
 		return utilsmodel.ProvisioningStatusFailed
 	}
-
+	log.Info("begin to determin provision status summary result %+v", summaryResult.Summary.JobID)
 	if opts.nonTerminalErr != nil || summaryResult == nil || !r.hasParity(ctx, object, summaryResult, log) || opts.deploymentQueued {
 		return utilsmodel.GetNonTerminalStatus(object)
 	}
-
+	log.Info("begin to determin provision status summary result %s", summaryResult.Summary.JobID)
 	summary := summaryResult.Summary
 	switch summaryResult.State {
 	case model.SummaryStateDone:
@@ -548,6 +549,7 @@ func (r *DeploymentReconciler) determineProvisioningStatus(ctx context.Context, 
 		if !summary.AllAssignedDeployed {
 			status = utilsmodel.ProvisioningStatusFailed
 		}
+		log.Info("begin to determin provision status summary result %s", summary.AllAssignedDeployed)
 		return status
 	default:
 		return utilsmodel.GetNonTerminalStatus(object)

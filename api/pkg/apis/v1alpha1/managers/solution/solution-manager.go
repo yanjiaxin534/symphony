@@ -237,7 +237,7 @@ func (s *SolutionManager) GetSummary(ctx context.Context, key string, namespace 
 		log.ErrorfCtx(ctx, " M (Solution): failed to deserailze deployment summary[%s]: %+v", key, err)
 		return model.SummaryResult{}, err
 	}
-
+	log.InfoCtx(ctx, "get result from summary %+v", result)
 	return result, nil
 }
 
