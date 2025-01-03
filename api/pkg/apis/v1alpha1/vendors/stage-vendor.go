@@ -776,7 +776,8 @@ func (s *StageVendor) handlePlanCompletetion(ctx context.Context, planState *Pla
 	return nil
 }
 func (p *PlanState) IsExpired() bool {
-	return time.Now().After(p.ExpireTime)
+	return false
+	// return time.Now().After(p.ExpireTime)
 }
 
 func (p *PlanState) isCompleted() bool {
