@@ -410,8 +410,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 				CurrentState:         planEnvelope.CurrentState,
 				StepStates:           make([]StepState, len(planEnvelope.Plan.Steps)),
 			}
-			log.InfoCtx(ctx, "V(Federation): store plan id %s in map %+v", planEnvelope.PlanId, planState)
-			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
+
 			s.SaveSummaryInfo(ctx, planState, model.SummaryStateRunning)
 			if len(planEnvelope.Plan.Steps) == 0 {
 				s.handlePlanComplete(ctx, planState)
@@ -441,6 +440,7 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 						return err
 					}
 				case PhaseApply:
+					planState.Summary.PlannedDeployment += len(step.Components)
 					log.InfoCtx(ctx, "V(Federation): publish deployment step id %s step %+v", stepId, step)
 					s.Vendor.Context.Publish("deployment-step", v1alpha2.Event{
 						Body: StepEnvelope{
@@ -457,6 +457,8 @@ func (s *StageVendor) Init(config vendors.VendorConfig, factories []managers.IMa
 
 				}
 			}
+			log.InfoCtx(ctx, "V(Federation): store plan id %s in map %+v", planEnvelope.PlanId, planState)
+			s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
 			return nil
 		},
 		Group: "stage-vendor",

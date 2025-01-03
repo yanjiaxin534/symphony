@@ -258,7 +258,9 @@ func (f *FederationVendor) Init(config vendors.VendorConfig, factories []manager
 						Step:       stepEnvelope.Step,
 						IsDryRun:   stepEnvelope.Deployment.IsDryRun,
 					}
-					stepEnvelope.PlanState.Summary.PlannedDeployment++
+					planState := stepEnvelope.PlanState
+					log.InfoCtx(ctx, "save summary")
+					f.SolutionManager.SaveSummary(ctx, planState.Deployment.Instance.ObjectMeta.Name, planState.Deployment.Generation, planState.Deployment.Hash, planState.Summary, model.SummaryStateRunning, planState.Namespace)
 					log.InfoCtx(ctx, "V(Federation): enqueue %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.Namespace, providApplyRequest)
 					f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.Namespace), providApplyRequest)
 					err = f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanId, stepEnvelope.Step.Target, stepEnvelope.Phase, stepEnvelope.Namespace, stepEnvelope.Remove)
