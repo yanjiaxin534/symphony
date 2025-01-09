@@ -8,6 +8,7 @@ package vendors
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -269,15 +270,26 @@ func (f *FederationVendor) enqueueProviderGetRequest(ctx context.Context, stepEn
 		},
 		References: stepEnvelope.Step.Components,
 	}
-	err := f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanState.PlanId, stepEnvelope.Step.Target, stepEnvelope.PlanState.Phase, stepEnvelope.PlanState.Namespace, stepEnvelope.Remove)
+	hash = getObjectHash(providerGetRequest)
+	err := f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanState.PlanId, stepEnvelope.Step.Target, stepEnvelope.PlanState.Phase, stepEnvelope.PlanState.Namespace, stepEnvelope.Remove, hash)
 	if err != nil {
 		log.ErrorCtx(ctx, "V(Federation) Error in insert operation Id %s", operationId)
 		return f.publishStepResult(ctx, stepEnvelope.Step.Target, stepEnvelope.PlanState.PlanId, stepEnvelope.StepId, err, []model.ComponentSpec{}, map[string]model.ComponentResultSpec{})
 	}
+
 	log.InfoCtx(ctx, "V(Federation): Enqueue get message %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace, providerGetRequest)
 	return f.StagingManager.QueueProvider.Enqueue(fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace), providerGetRequest)
 }
 
+func getObjectHash(object interface{}) ([32]byte, error) {
+	data, _ := json.Marshal(providerGetRequest)
+	if err != nil {
+		fmt.Println("Error marshaling struct:", err)
+		return "", err
+	}
+	hash, _ := sha256.Sum256([]byte(data))
+	return string(hash)
+}
 func (f *FederationVendor) getProviderAndExecute(ctx context.Context, stepEnvelope StepEnvelope) error {
 	provider, err := f.SolutionManager.GetTargetProviderForStep(stepEnvelope.Step.Target, stepEnvelope.Step.Role, stepEnvelope.PlanState.Deployment, stepEnvelope.PlanState.PreviousDesiredState)
 	if err != nil {
@@ -311,8 +323,10 @@ func (f *FederationVendor) enqueueProviderApplyRequest(ctx context.Context, step
 		Step:       stepEnvelope.Step,
 		IsDryRun:   stepEnvelope.PlanState.Deployment.IsDryRun,
 	}
+
+	hash, _ := getObjectHash(providApplyRequest)
 	log.InfoCtx(ctx, "V(Federation): Enqueue apply message %s-%s %+v ", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace, providApplyRequest)
-	err := f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanState.PlanId, stepEnvelope.Step.Target, stepEnvelope.PlanState.Phase, stepEnvelope.PlanState.Namespace, stepEnvelope.Remove)
+	err := f.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanState.PlanId, stepEnvelope.Step.Target, stepEnvelope.PlanState.Phase, stepEnvelope.PlanState.Namespace, stepEnvelope.Remove, hash)
 	if err != nil {
 		log.ErrorCtx(ctx, "error in insert operation Id %s", operationId)
 		return f.publishStepResult(ctx, stepEnvelope.Step.Target, stepEnvelope.PlanState.PlanId, stepEnvelope.StepId, err, []model.ComponentSpec{}, map[string]model.ComponentResultSpec{})
@@ -441,7 +455,21 @@ func (f *FederationVendor) handleRemoteAgentExecuteResult(ctx context.Context, a
 			Body:  []byte(err.Error()),
 		}
 	}
-
+	// check queue peel operation ID same as this id
+	queueName := fmt.Sprintf("%s-%s", operationBody.Target, operationBody.NameSpace)
+	queueElement, _ := f.StagingManager.QueueProvider.Peek(queueName)
+	hash, _ = getObjectHash(queueElement)
+	if hash != operationBody.Hash{
+		// message not math something wrong
+		sLog.ErrorfCtx(ctx, "V(FederationVendor): onGetResponse failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte("{\"result\":\"500 - M (Federation): message handled is not matched with queue peek\"}"),,
+		}
+	}else{
+		// successfully handled -> delete message
+		f.StagingManager.QueueProvider.Dequeue(queueName)
+	}
 	switch operationBody.Action {
 	case PhaseGet:
 		// Send to step result
@@ -515,7 +543,8 @@ func (f *FederationVendor) getTaskFromQueue(ctx context.Context, target string, 
 	sLog.InfoCtx(ctx, "V(FederationVendor): getFromQueue %s queue length %s", queueName)
 	defer span.End()
 
-	queueElement, err := f.StagingManager.QueueProvider.Dequeue(queueName)
+	// queueElement, err := f.StagingManager.QueueProvider.Dequeue(queueName)
+	queueElement, err := f.StagingManager.QueueProvider.Peek(queueName)
 	if err != nil {
 		sLog.ErrorfCtx(ctx, "V(FederationVendor): getQueue failed - %s", err.Error())
 		return v1alpha2.COAResponse{
@@ -532,7 +561,7 @@ func (f *FederationVendor) getTaskFromQueue(ctx context.Context, target string, 
 }
 
 // upsertOperationState upserts the operation state for the specified parameters.
-func (f *FederationVendor) upsertOperationState(ctx context.Context, operationId string, stepId int, planId string, target string, action JobPhase, namespace string, remove bool) error {
+func (f *FederationVendor) upsertOperationState(ctx context.Context, operationId string, stepId int, planId string, target string, action JobPhase, namespace string, remove bool, hash string) error {
 	upsertRequest := states.UpsertRequest{
 		Value: states.StateEntry{
 			ID: operationId,
@@ -543,6 +572,7 @@ func (f *FederationVendor) upsertOperationState(ctx context.Context, operationId
 				"Action":    action,
 				"namespace": namespace,
 				"Remove":    remove,
+				"Hash":      hash,
 			}},
 	}
 	_, err := f.StagingManager.StateProvider.Upsert(ctx, upsertRequest)
