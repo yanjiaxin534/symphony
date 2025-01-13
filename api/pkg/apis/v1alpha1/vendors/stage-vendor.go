@@ -434,18 +434,18 @@ func (s *StageVendor) handleDeploymentPlan(ctx context.Context, event v1alpha2.E
 	}
 	for _, step := range planEnvelope.Plan.Steps {
 		switch planEnvelope.Phase {
+		case PhaseGet:
+			log.InfoCtx(ctx, "phase get begin deployment %+v", planEnvelope.Deployment)
+			if err := s.publishStepResult(ctx, 0, planState, planEnvelope.Remove, planState.Steps[0]); err != nil {
+				log.InfoCtx(ctx, "V(Federation): publish deployment step failed PlanId %s, stepId %s", planEnvelope.PlanId, 0)
+				return err
+			}
 		case PhaseApply:
 			planState.Summary.PlannedDeployment += len(step.Components)
 		}
 	}
-	// for i, step := range planEnvelope.Plan.Steps {
+	// when no step
 	switch planEnvelope.Phase {
-	case PhaseGet:
-		log.InfoCtx(ctx, "phase get begin deployment %+v", planEnvelope.Deployment)
-		if err := s.publishStepResult(ctx, 0, planState, planEnvelope.Remove, planState.Steps[0]); err != nil {
-			log.InfoCtx(ctx, "V(Federation): publish deployment step failed PlanId %s, stepId %s", planEnvelope.PlanId, 0)
-			return err
-		}
 	case PhaseApply:
 		// planState.Summary.PlannedDeployment += len(planEnvelope.Plan.Steps[0].Components)
 		log.InfoCtx(ctx, "V(Federation): publish deployment step id %s step %+v", 0, planEnvelope.Plan.Steps[0].Role)
@@ -454,7 +454,7 @@ func (s *StageVendor) handleDeploymentPlan(ctx context.Context, event v1alpha2.E
 			return err
 		}
 	}
-	// }
+
 	log.InfoCtx(ctx, "V(Federation): store plan id %s in map %+v", planEnvelope.PlanId)
 	s.PlanManager.Plans.Store(planEnvelope.PlanId, planState)
 	return nil
