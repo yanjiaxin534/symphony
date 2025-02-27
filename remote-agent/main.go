@@ -12,12 +12,17 @@ import (
 
 	"net/http"
 
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target/docker"
+	targethttp "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target/http"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target/script"
+	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target/win10/sideload"
+
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/model"
 	tgt "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target"
-	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target/script"
 	"github.com/eclipse-symphony/symphony/remote-agent/agent"
-	remoteHttp "github.com/eclipse-symphony/symphony/remote-agent/bindings/http"
+	remoteMqtt "github.com/eclipse-symphony/symphony/remote-agent/bindings/mqtt"
 	remoteProviders "github.com/eclipse-symphony/symphony/remote-agent/providers"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // The version should be hardcoded in the build process
@@ -107,26 +112,68 @@ func main() {
 	// Compose target providers
 	providers := composeTargetProviders(*topologyFile)
 	// Create the HttpBinding instance
-	h := &remoteHttp.HttpBinding{
+	// h := &remoteHttp.HttpBinding{
+	// 	Agent: agent.Agent{
+	// 		Providers: providers,
+	// 	},
+	// }
+
+	// // Set up the request and response URLs
+	// h.RequestUrl = symphonyEndpoints.RequestEndpoint
+	// h.ResponseUrl = symphonyEndpoints.ResponseEndpoint
+	// h.Client = httpClient
+	// h.Target = *targetName
+	// h.Namespace = *namespace
+
+	// // Launch the HttpBinding
+	// err = h.Launch()
+	// if err != nil {
+	// 	fmt.Println("Error launching HttpBinding:", err)
+	// 	return
+	// }
+
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker("tcp://52.237.223.156:32551")
+	opts.SetClientID("symphony-client") // Set a unique ClientID
+	// opts.SetUsername("abc")
+	// opts.SetPassword("abcd")
+	mqttClient := mqtt.NewClient(opts)
+	if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
+		log.Fatalf("Failed to connect to MQTT broker: %v", token.Error())
+	} else {
+		fmt.Println("Connected to MQTT broker")
+	}
+	fmt.Println("Begin to request topic", "ddc")
+	// m.RequestTopic = symphonyEndpoints.RequestEndpoint
+	// m.ResponseTopic = symphonyEndpoints.ResponseEndpoint
+	// for mqtt
+	m := &remoteMqtt.MqttBinding{
 		Agent: agent.Agent{
 			Providers: providers,
 		},
+		Client: mqttClient,
 	}
-
-	// Set up the request and response URLs
-	h.RequestUrl = symphonyEndpoints.RequestEndpoint
-	h.ResponseUrl = symphonyEndpoints.ResponseEndpoint
-	h.Client = httpClient
-	h.Target = *targetName
-	h.Namespace = *namespace
-
-	// Launch the HttpBinding
-	err = h.Launch()
-	if err != nil {
-		fmt.Println("Error launching HttpBinding:", err)
-		return
-	}
-
+	m.RequestTopic = "symphony/request"
+	m.ResponseTopic = "symphony/response"
+	m.Target = *targetName
+	m.Namespace = *namespace
+	// initialRequest := fmt.Sprintf(`{"target":"%s","namespace":"%s","getAll":"true","preindex":"0"}`, m.Target, m.Namespace)
+	// token := m.Client.Publish(m.RequestTopic, 0, false, initialRequest)
+	// fmt.Println("Begin to launch %s", token)
+	// m.Client.Subscribe(m.RequestTopic, 0, func(client mqtt.Client, msg mqtt.Message) {
+	// 	fmt.Printf("Sub topic: %d. \n", msg.Topic())
+	// 	var allRequests model.ProviderPagingRequest
+	// 	err := json.Unmarshal(msg.Payload(), &allRequests)
+	// 	if err != nil {
+	// 		fmt.Printf("Error unmarshalling response: %s", err.Error())
+	// 		return
+	// 	}
+	// 	// requests = append(requests, allRequests.RequestList...)
+	// 	if allRequests.LastMessageID == "" {
+	// 		return
+	// 	}
+	// })
+	m.Launch()
 	// Keep the main function running
 	select {}
 }
@@ -146,15 +193,15 @@ func composeTargetProviders(topologyPath string) map[string]tgt.ITargetProvider 
 	// Add the target providers to the map
 	// Add the script provider
 	for _, binding := range topology.Bindings {
-		switch binding.Role {
-		case "script":
+		switch binding.Provider {
+		case "providers.target.script":
 			provider := &script.ScriptProvider{}
 			err := provider.Init(binding.Config)
 			if err != nil {
 				fmt.Println("Error initializing script provider:", err)
 			}
-			providers["script"] = provider
-		case "remote-agent":
+			providers[binding.Role] = provider
+		case "providers.target.remote-agent":
 			rProvider := &remoteProviders.RemoteAgentProvider{}
 			rProvider.Client = httpClient
 			rProviderConfig := remoteProviders.RemoteAgentProviderConfig{
@@ -172,7 +219,30 @@ func composeTargetProviders(topologyPath string) map[string]tgt.ITargetProvider 
 			if err != nil {
 				fmt.Println("Error remote agent provider:", err)
 			}
-			providers["remote-agent"] = rProvider
+			providers[binding.Role] = rProvider
+		case "providers.target.win10.sideload":
+			mProvider := &sideload.Win10SideLoadProvider{}
+			err := mProvider.Init(binding.Config)
+			if err != nil {
+				fmt.Println("Error initializing win10.sideload provider:", err)
+			}
+			providers[binding.Role] = mProvider
+		case "providers.target.docker":
+			mProvider := &docker.DockerTargetProvider{}
+			err = mProvider.Init(binding.Config)
+			if err != nil {
+				fmt.Println("Error initializing docker provider:", err)
+			}
+			providers[binding.Role] = mProvider
+		case "providers.target.http":
+			mProvider := &targethttp.HttpTargetProvider{}
+			err = mProvider.Init(binding.Config)
+			fmt.Println("binding.Config")
+			fmt.Println(binding.Config)
+			if err != nil {
+				fmt.Println("Error initializing http provider:", err)
+			}
+			providers[binding.Role] = mProvider
 		default:
 			fmt.Println("Unknown provider type:", binding.Role)
 		}

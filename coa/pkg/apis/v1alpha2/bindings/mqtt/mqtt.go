@@ -42,11 +42,12 @@ func (m *MQTTBinding) Launch(config MQTTBindingConfig, endpoints []v1alpha2.Endp
 			route = strings.TrimPrefix(route, route[:lastSlash+1])
 		}
 		routeTable[route] = endpoint
+		log.InfofCtx(context.Background(), "Registering route: %s Endpoint: %s", route, endpoint)
 	}
 
 	opts := gmqtt.NewClientOptions().AddBroker(config.BrokerAddress).SetClientID(config.ClientID)
-	opts.SetKeepAlive(2 * time.Second)
-	opts.SetPingTimeout(1 * time.Second)
+	opts.SetKeepAlive(200 * time.Second)
+	opts.SetPingTimeout(100 * time.Second)
 	opts.CleanSession = false
 	m.MQTTClient = gmqtt.NewClient(opts)
 	if token := m.MQTTClient.Connect(); token.Wait() && token.Error() != nil {
@@ -62,6 +63,9 @@ func (m *MQTTBinding) Launch(config MQTTBindingConfig, endpoints []v1alpha2.Endp
 		// patch correlation id if missing
 		contexts.GenerateCorrelationIdToParentContextIfMissing(request.Context)
 		err := json.Unmarshal(msg.Payload(), &request)
+		log.InfofCtx(request.Context, "Received request payload: %s", string(msg.Payload()))
+		log.InfofCtx(request.Context, "Received request: %s", request)
+		log.InfofCtx(request.Context, "Received request Route: %s", request.Route)
 		if err != nil {
 			response = v1alpha2.COAResponse{
 				State:       v1alpha2.BadRequest,

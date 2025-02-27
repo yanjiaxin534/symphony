@@ -859,6 +859,15 @@
             }
           ]
       }
+    },
+    {
+      "type": "bindings.mqtt",
+      "config":{
+        "brokerAddress": "tcp://52.237.223.156:32551",
+        "clientID": "symphony",
+        "requestTopic": "symphony/request",
+        "responseTopic": "symphony/response"
+      }
     }
   ]
 }
