@@ -1,0 +1,5 @@
+{
+    "requestEndpoint": "https://symphony-service:8082/v1alpha2/solution/tasks",
+    "responseEndpoint": "https://symphony-service:8082/v1alpha2/solution/task/getResult",
+    "baseUrl": "https://symphony-service:8082/v1alpha2"
+}
