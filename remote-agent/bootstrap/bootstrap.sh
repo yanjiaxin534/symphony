@@ -290,7 +290,6 @@ else
 fi
 
 # Make the remote-agent binary executable
-chmod +x remote-agent
 if [ $? -ne 0 ]; then
     echo -e "\e[31mError: Failed to make remote-agent binary executable. Exiting...\e[0m"
     exit 1
