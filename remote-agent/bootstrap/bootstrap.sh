@@ -289,12 +289,15 @@ else
     echo -e "\e[32mUsing remote-agent binary: $agent_path\e[0m"
 fi
 
-# Make the remote-agent binary executable
-if [ $? -ne 0 ]; then
-    echo -e "\e[31mError: Failed to make remote-agent binary executable. Exiting...\e[0m"
-    exit 1
-else
-    echo -e "\e[32mRemote-agent binary made executable\e[0m"
+# Make the remote-agent binary executable (for HTTP mode, chmod was already done above)
+if [ "$protocol" = "http" ]; then
+    chmod +x "./remote-agent"
+    if [ $? -ne 0 ]; then
+        echo -e "\e[31mError: Failed to make remote-agent binary executable. Exiting...\e[0m"
+        exit 1
+    else
+        echo -e "\e[32mRemote-agent binary made executable\e[0m"
+    fi
 fi
 
 echo -e "\e[32mFiles created successfully:\e[0m"
@@ -309,7 +312,7 @@ if [ "$protocol" = "http" ]; then
     # HTTP mode: Use the generated public.pem and private.pem
     public_path=$(realpath "./public.pem")
     private_path=$(realpath "./private.pem")
-    agent_path=$(realpath "./remote-agent")
+    # agent_path was already set above for HTTP mode, no need to reset it
 else
     # MQTT mode: Use the original certificate paths
     public_path=$cert_path
@@ -337,6 +340,32 @@ if [ "$protocol" = "mqtt" ] && [ "$use_cert_subject" = "true" ]; then
 fi
 
 echo -e "\e[32mService command: $service_command\e[0m"
+
+# Debug: Check if the binary exists and is executable
+echo -e "\e[32mDebugging: Checking binary at path: $agent_path\e[0m"
+echo -e "\e[32mDebugging: Current working directory: $(pwd)\e[0m"
+if [ -f "$agent_path" ]; then
+    echo -e "\e[32mDebugging: Binary file exists\e[0m"
+    ls -la "$agent_path"
+    if [ -x "$agent_path" ]; then
+        echo -e "\e[32mDebugging: Binary is executable\e[0m"
+    else
+        echo -e "\e[31mDebugging: Binary is NOT executable\e[0m"
+    fi
+    
+    # Test if the binary can actually run
+    echo -e "\e[32mDebugging: Testing binary execution...\e[0m"
+    if "$agent_path" --help >/dev/null 2>&1 || "$agent_path" -h >/dev/null 2>&1 || "$agent_path" --version >/dev/null 2>&1; then
+        echo -e "\e[32mDebugging: Binary executes successfully\e[0m"
+    else
+        echo -e "\e[31mDebugging: Binary failed to execute (exit code: $?)\e[0m"
+    fi
+else
+    echo -e "\e[31mDebugging: Binary file does NOT exist at path: $agent_path\e[0m"
+    echo -e "\e[31mDebugging: Current directory contents:\e[0m"
+    ls -la .
+fi
+
 # Create the remote-agent.service file
 echo -e "\e[32mCreating remote-agent.service file...\e[0m"
 sudo bash -c "cat <<EOF > /etc/systemd/system/remote-agent.service
@@ -346,6 +375,7 @@ After=network.target
 
 [Service]
 ExecStart=$service_command
+WorkingDirectory=$(pwd)
 Restart=always
 User=$user
 Group=$group
