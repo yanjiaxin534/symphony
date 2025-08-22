@@ -17,7 +17,7 @@ import (
 func DebugCertificateInfo(t *testing.T, certPath, certType string) {
 	t.Logf("=== DEBUG %s at %s ===", certType, certPath)
 
-	certBytes, err := os.ReadFiletPath)
+	certBytes, err := os.ReadFiletPath(certPath)
 	if err != nil {
 		t.Logf("ERROR: Failed to read certificate file %s: %v", certPath, err)
 		return
@@ -99,7 +99,7 @@ func DebugTLSConnection(t *testing.T, brokerAddress string, port int, caCertPath
 	// Load CA certificate
 	var caCertPool *x509.CertPool
 	if caCertPath != "" {
-		caCertBytes, err := os.ReadFileertPath)
+		caCertBytes, err := os.ReadFile(caCertPath)
 		if err != nil {
 			t.Logf("ERROR: Failed to read CA certificate: %v", err)
 			return

@@ -108,7 +108,7 @@ func mainLogic() error {
 	}
 	fmt.Printf("Using client certificate path: %s\n", clientCertPath)
 	// read configuration
-	setting, err := os.ReadFilefigPath)
+	setting, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("error reading configuration file: %v", err)
 	}
@@ -170,7 +170,7 @@ func mainLogic() error {
 		// If HTTP protocol and CA certificate is specified, add it to the trusted roots for Symphony server
 		if caPath != "" {
 			fmt.Printf("Loading Symphony server CA certificate from: %s\n", caPath)
-			serverCACert, err := os.ReadFileath)
+			serverCACert, err := os.ReadFile(caPath)
 			if err != nil {
 				return fmt.Errorf("failed to read Symphony server CA certificate: %v", err)
 			}
