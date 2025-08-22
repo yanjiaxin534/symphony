@@ -153,20 +153,6 @@ func (m *MQTTBinding) Launch(config MQTTBindingConfig, endpoints []v1alpha2.Endp
 	if token := m.MQTTClient.Connect(); token.Wait() && token.Error() != nil {
 		connErr := token.Error()
 		log.Errorf("MQTT Binding: failed to connect to MQTT broker - %+v", connErr)
-
-		// Provide specific guidance for common TLS errors
-		if strings.Contains(connErr.Error(), "certificate signed by unknown authority") {
-			log.Errorf("MQTT Binding: TLS certificate verification failed. Common solutions:")
-			log.Errorf("MQTT Binding: 1. Set 'caCertPath' to the path of your broker's CA certificate")
-			log.Errorf("MQTT Binding: 2. Set 'insecureSkipVerify' to 'true' for testing (not recommended for production)")
-			log.Errorf("MQTT Binding: 3. Ensure your broker certificate is issued by a trusted CA")
-		} else if strings.Contains(connErr.Error(), "tls:") {
-			log.Errorf("MQTT Binding: TLS connection error. Check your TLS configuration:")
-			log.Errorf("MQTT Binding: - Broker address should use 'ssl://' or 'tls://' prefix for TLS connections")
-			log.Errorf("MQTT Binding: - Verify CA certificate path and format")
-			log.Errorf("MQTT Binding: - Check client certificate and key paths if using mutual TLS")
-		}
-
 		return v1alpha2.NewCOAError(connErr, "failed to connect to MQTT broker", v1alpha2.InternalError)
 	}
 
