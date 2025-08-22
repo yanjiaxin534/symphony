@@ -166,7 +166,7 @@ func (i *RemoteAgentProvider) Get(ctx context.Context, deployment model.Deployme
 }
 
 func (i *RemoteAgentProvider) getCertificateExpirationOrThumbPrint(certPath string, kind string) (string, error) {
-	certPEM, err := ioutil.ReadFile(certPath)
+	certPEM, err := os.ReadFile(certPath)
 	if err != nil {
 		return "", err
 	}

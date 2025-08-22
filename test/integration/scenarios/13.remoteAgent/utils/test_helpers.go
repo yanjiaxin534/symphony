@@ -3334,7 +3334,7 @@ spec:
 
 // readFileBytes reads file content as bytes for base64 encoding
 func readFileBytes(t *testing.T, filePath string) []byte {
-	data, err := ioutil.ReadFile(filePath)
+	data, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 	return data
 }
@@ -3522,7 +3522,6 @@ func StartSymphonyWithMQTTConfig(t *testing.T, brokerAddress string) {
 		"--set remoteAgent.remoteCert.trustCAs.secretName=mqtt-ca "+
 		"--set remoteAgent.remoteCert.trustCAs.secretKey=ca.crt "+
 		"--set remoteAgent.remoteCert.subjects=MyRootCA;localhost "+
-		"--set http.enabled=true "+
 		"--set mqtt.enabled=true "+
 		"--set mqtt.useTLS=true "+
 		"--set mqtt.mqttClientCert.enabled=true "+
