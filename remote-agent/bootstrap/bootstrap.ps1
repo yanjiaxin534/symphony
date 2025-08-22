@@ -212,7 +212,6 @@ if ($protocol -eq 'http') {
     $corrected_private_content = "$header`n$base64_content`n$footer"
     $corrected_private_content | Set-Content -Path "private.pem" -Encoding ascii
     Write-Host "Successfully created private.pem file" -ForegroundColor Green
-    
     # Download remote-agent binary
     Write-Host "Begin to download remote-agent binary file" -ForegroundColor Blue
     try {
@@ -228,20 +227,84 @@ if ($protocol -eq 'http') {
         Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
         exit 1
     }
-    $agent_path = Resolve-Path ".\remote-agent.exe"
-    
     # Set certificate paths for HTTP mode
     $public_path = Resolve-Path ".\public.pem"
     $private_path = Resolve-Path ".\private.pem"
-    
+    Write-Host "Using user-supplied remote-agent binary: $agent_path" -ForegroundColor Green
+    Write-Host "Using certificate: $public_path" -ForegroundColor Green
+    Write-Host "Using private key: $private_path" -ForegroundColor Green
+    # Download remote-agent-service binary
+    # if run mode is service, download the remote-agent-service binary
+    if ($run_mode -ne 'service') {
+        Write-Host "Run mode is not 'service', skipping remote-agent-service download." -ForegroundColor Yellow
+        $agent_path = Resolve-Path ".\remote-agent.exe"
+
+    }else{
+        $agent_path = Resolve-Path ".\remote-agent-service.exe"
+        Write-Host "Begin to download remote-agent-service binary file" -ForegroundColor Blue
+        try {
+            $WebRequestParams = @{
+                Uri = "$($endpoint)/files/remote-agent-service.exe"
+                Method = 'Get'
+                Certificate = $cert
+            }
+            Invoke-WebRequest @WebRequestParams -OutFile "remote-agent-service.exe" -ErrorAction Stop
+            Write-Host "Successfully downloaded remote-agent-service.exe" -ForegroundColor Green
+        } catch {
+            Write-Host "Error: Failed to download." -ForegroundColor Red
+            Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+        }
+    }
 } else {
-    # MQTT mode: Prompt for binary
-    $agent_path = Read-Host "Please input the full absolute path to your remote-agent.exe binary (e.g. C:\path\to\remote-agent.exe)"
-    $agent_path = $agent_path.Trim('"')
-    if (-not (Test-Path $agent_path)) {
-        Write-Host "Error: remote-agent.exe not found at $agent_path" -ForegroundColor Red
+    $binary_folder = Read-Host "Please input the folder path containing the remote-agent binaries (e.g. C:\path\to\binaries)"
+    $binary_folder = $binary_folder.Trim('"')
+    
+    # Validate folder exists
+    if (-not (Test-Path $binary_folder -PathType Container)) {
+        Write-Host "Error: Folder not found at $binary_folder" -ForegroundColor Red
         exit 1
     }
+    
+    # Define required binaries based on run mode
+    $required_binaries = @()
+    if ($run_mode -eq 'service') {
+        $required_binaries += "remote-agent-service.exe"
+        $required_binaries += "remote-agent.exe"
+        $agent_binary = "remote-agent-service.exe"
+    } elseif ($run_mode -eq 'schedule') {
+        $required_binaries += "remote-agent.exe"
+        $agent_binary = "remote-agent.exe"
+    } else {
+        Write-Host "Error: Invalid run_mode '$run_mode'. Must be either 'service' or 'schedule'." -ForegroundColor Red
+        exit 1
+    }
+    
+    # Check for required binaries
+    $missing_binaries = @()
+    foreach ($binary in $required_binaries) {
+        $binary_path = Join-Path $binary_folder $binary
+        if (-not (Test-Path $binary_path)) {
+            $missing_binaries += $binary
+        }
+    }
+    
+    if ($missing_binaries.Count -gt 0) {
+        Write-Host "Error: Missing required binaries in folder $binary_folder :" -ForegroundColor Red
+        foreach ($missing in $missing_binaries) {
+            Write-Host "  - $missing" -ForegroundColor Red
+        }
+        Write-Host "For run_mode='$run_mode', the following binaries are required:" -ForegroundColor Yellow
+        foreach ($required in $required_binaries) {
+            Write-Host "  - $required" -ForegroundColor Yellow
+        }
+        exit 1
+    }
+    
+    # Set the agent path based on run mode
+    $agent_path = Join-Path $binary_folder $agent_binary
+    Write-Host "Using binary folder: $binary_folder" -ForegroundColor Green
+    Write-Host "Selected binary for run_mode='$run_mode': $agent_binary" -ForegroundColor Green
     
     # Handle CA certificate for MQTT
     if (-not $ca_cert_path) {

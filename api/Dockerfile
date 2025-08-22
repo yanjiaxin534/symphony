@@ -82,9 +82,14 @@ RUN if [ "$BUILDFLAG" != "azure" ]; then \
     fi; \
     fi
 
-WORKDIR /workspace/remote-agent
-RUN CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=amd64 go build -o /remote-agent/remote-agent
+
+# Build symphony-agent.exe for Windows/linux (the actual agent worker)
+WORKDIR /workspace/remote-agent/cmd/symphony-agent
 RUN CGO_ENABLED=${CGO_ENABLED} GOOS=windows GOARCH=amd64 go build -o /remote-agent/remote-agent.exe
+RUN CGO_ENABLED=${CGO_ENABLED} GOOS=linux GOARCH=amd64 go build -o /remote-agent/remote-agent
+# Build symphony-service.exe for Windows (the service wrapper)
+WORKDIR /workspace/remote-agent/cmd/symphony-service  
+RUN CGO_ENABLED=${CGO_ENABLED} GOOS=windows GOARCH=amd64 go build -o /remote-agent/remote-agent-service.exe
 
 WORKDIR /workspace/api
 

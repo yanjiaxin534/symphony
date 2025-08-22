@@ -38,7 +38,7 @@ fi
 
 cd ../../test/localenv
 
-mage cluster:deployWithSettings "--set remoteAgent.remoteCert.used=true --set remoteAgent.remoteCert.trustCAs.secretName=<secret name> --set remoteAgent.remoteCert.trustCAs.secretKey=<secret key> --set installServiceExt=true"
+mage cluster:deployWithSettings "--set remoteAgent.remoteCert.used=true  --set remoteAgent.remoteCert.trustCAs.secretName=client-cert-secret --set remoteAgent.remoteCert.trustCAs.secretKey=client-cert-key --set certManager.enabled=true --set api.env.ISSUER_NAME=symphony-ca-issuer --set api.env.SYMPHONY_SERVICE_NAME=symphony-service --set installServiceExt=true"
 # default is : mage cluster:deployWithSettings "--set remoteAgent.remoteCert.used=true --set remoteAgent.remoteCert.trustCAs.secretName=client-cert-secret --set remoteAgent.remoteCert.trustCAs.secretKey=client-cert-key --set installServiceExt=true"
 
 # start a new terminal
@@ -79,6 +79,7 @@ kubectl apply -f ../../remote-agent/bootstrap/sample_target.yaml
 # call the bootstrap.sh script
 # sign bootstrap script
 # sign binary
-sudo systemctl stop remote-agent.service
+
+
 cd ../../remote-agent/bootstrap
 ./bootstrap.sh http https://symphony-service:8081/v1alpha2 client.crt client.key remote-demo default topologies.json <user> <group>
