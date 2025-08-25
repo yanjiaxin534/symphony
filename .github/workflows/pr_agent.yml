@@ -1,6 +1,8 @@
 on:
   pull_request:
     types: [opened, reopened, ready_for_review]
+    branches:
+      - remote-agent-ai
   issue_comment:
 
 jobs:
@@ -13,7 +15,7 @@ jobs:
       contents: write
     steps:
       - name: PR Agent action step
-        uses: Codium-ai/pr-agent@remote-agent
+        uses: Codium-ai/pr-agent@remote-agent-ai
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
