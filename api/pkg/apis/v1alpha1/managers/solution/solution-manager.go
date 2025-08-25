@@ -23,6 +23,7 @@ import (
 	tgt "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/providers/target"
 	api_utils "github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/utils"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2"
+	mqttbinding "github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/bindings/mqtt"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/contexts"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/managers"
 	"github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/observability"
@@ -75,6 +76,7 @@ type SolutionManager struct {
 	IsTarget        bool
 	TargetNames     []string
 	ApiClientHttp   api_utils.ApiClient
+	MqttBinding     *mqttbinding.MQTTBinding
 }
 
 func (s *SolutionManager) Init(context *contexts.VendorContext, config managers.ManagerConfig, providers map[string]providers.IProvider) error {
@@ -221,6 +223,13 @@ func (s *SolutionManager) AsyncReconcile(ctx context.Context, deployment model.D
 		}
 
 	}
+
+	// set MQTT binding
+	s.MqttBinding = s.VendorContext.GetMQTTBinding()
+
+	// check and subscribe all remote targets
+	s.ensureRemoteTargetSubscriptions(ctx, deployment, remove)
+
 	// Generate new deployment plan for deployment
 	initalPlan, err := PlanForDeployment(deployment, state)
 	if err != nil {
@@ -262,6 +271,77 @@ func (s *SolutionManager) AsyncReconcile(ctx context.Context, deployment model.D
 	})
 	return summary, nil
 }
+
+// ensureRemoteTargetSubscriptions ensures that MQTT subscriptions for remote targets are created during deployment setup.
+// Note: Unsubscription is handled separately after successful deletion completion.
+func (s *SolutionManager) ensureRemoteTargetSubscriptions(ctx context.Context, deployment model.DeploymentSpec, remove bool) {
+	if s.MqttBinding == nil {
+		log.InfofCtx(ctx, " M (Solution): MQTT binding is not initialized, skipping remote target subscriptions")
+		return
+	}
+
+	// Only handle subscription setup during non-removal deployments
+	// Unsubscription will be handled after successful deletion completion
+	if remove {
+		log.InfofCtx(ctx, " M (Solution): skip MQTT subscription changes during delete deployment - cleanup will happen after successful completion")
+		return
+	}
+
+	// Iterate over all targets in the deployment to ensure subscriptions for remote targets
+	for targetName, _ := range deployment.Targets {
+		isRemote := stepTargetIsRemoteTarget(deployment, targetName)
+		if isRemote {
+			topic := fmt.Sprintf("symphony/request/%s", targetName)
+			log.InfofCtx(ctx, " M (Solution): subscribing to MQTT topic for remote target %s, topic %s", targetName, topic)
+
+			if err := s.MqttBinding.SubscribeTopic(topic); err != nil {
+				log.ErrorfCtx(ctx, " M (Solution): failed to subscribe to MQTT topic for target %s: %v", targetName, err)
+			} else {
+				log.InfofCtx(ctx, " M (Solution): successfully subscribed to MQTT topic %s for remote target %s", topic, targetName)
+			}
+		}
+	}
+}
+
+// cleanupRemoteTargetResourcesAfterDeletion cleans up MQTT subscriptions and Redis queues for deleted remote targets after successful deletion
+func (s *SolutionManager) cleanupRemoteTargetResourcesAfterDeletion(ctx context.Context, deployment model.DeploymentSpec, namespace string) {
+	if s.MqttBinding == nil {
+		log.InfofCtx(ctx, " M (Solution): MQTT binding is not initialized, skipping remote target cleanup")
+		return
+	}
+
+	// Iterate over all targets in the deployment to clean up resources for remote targets
+	for targetName, _ := range deployment.Targets {
+		isRemote := stepTargetIsRemoteTarget(deployment, targetName)
+		if isRemote {
+			topic := fmt.Sprintf("symphony/request/%s", targetName)
+			log.InfofCtx(ctx, " M (Solution): cleaning up MQTT subscription for deleted remote target %s, topic %s", targetName, topic)
+
+			// Unsubscribe from MQTT topic using the dedicated method
+			s.MqttBinding = s.VendorContext.GetMQTTBinding()
+			if s.MqttBinding != nil {
+				if err := s.MqttBinding.UnsubscribeTopic(topic); err != nil {
+					log.WarnfCtx(ctx, " M (Solution): failed to unsubscribe from MQTT topic %s for deleted target %s: %s", topic, targetName, err.Error())
+				} else {
+					log.InfofCtx(ctx, " M (Solution): successfully unsubscribed from MQTT topic %s for deleted target %s", topic, targetName)
+				}
+			}
+
+			// Clean up Redis queue
+			if s.QueueProvider != nil {
+				queueName := fmt.Sprintf("%s-%s", targetName, namespace)
+				if queueErr := s.QueueProvider.DeleteQueue(ctx, queueName); queueErr != nil {
+					log.WarnfCtx(ctx, " M (Solution): failed to delete Redis queue %s for deleted target %s: %s", queueName, targetName, queueErr.Error())
+				} else {
+					log.InfofCtx(ctx, " M (Solution): successfully deleted Redis queue %s for deleted target %s", queueName, targetName)
+				}
+			} else {
+				log.WarnfCtx(ctx, " M (Solution): Queue provider not available, skipping queue cleanup for deleted target %s", targetName)
+			}
+		}
+	}
+}
+
 func (s *SolutionManager) getPreviousState(ctx context.Context, instance string, namespace string) *model.SolutionManagerDeploymentState {
 	state, err := s.StateProvider.Get(ctx, states.GetRequest{
 		ID: instance,
@@ -426,7 +506,7 @@ func (s *SolutionManager) handleAllPlanCompletetion(ctx context.Context, summary
 	if !summary.PlanState.Deployment.IsDryRun {
 		if len(summary.PlanState.MergedState.TargetComponent) == 0 && summary.IsRemoval {
 			log.DebugfCtx(ctx, " M (Solution): no assigned components to manage, deleting state")
-			s.StateProvider.Delete(ctx, states.DeleteRequest{
+			err := s.StateProvider.Delete(ctx, states.DeleteRequest{
 				ID: summary.PlanState.Deployment.Instance.ObjectMeta.Name,
 				Metadata: map[string]interface{}{
 					"namespace": summary.PlanState.Namespace,
@@ -435,6 +515,14 @@ func (s *SolutionManager) handleAllPlanCompletetion(ctx context.Context, summary
 					"resource":  DeploymentState,
 				},
 			})
+
+			// Cleanup MQTT subscriptions and Redis queues for deleted remote targets
+			// Only perform cleanup for target deletions specifically
+			if err == nil && summary.PlanState.Deployment.IsTargetDeletion {
+				log.InfofCtx(ctx, " M (Solution): performing MQTT and Redis cleanup for target deletion")
+				// to do add target check before this, when delete succeed, then delete resource
+				s.cleanupRemoteTargetResourcesAfterDeletion(ctx, summary.PlanState.Deployment, summary.PlanState.Namespace)
+			}
 		} else {
 			s.StateProvider.Upsert(ctx, states.UpsertRequest{
 				Value: states.StateEntry{
@@ -651,11 +739,13 @@ func (s *SolutionManager) enqueueProviderGetRequest(ctx context.Context, stepEnv
 
 func (s *SolutionManager) enqueueRequest(ctx context.Context, stepEnvelope model.StepEnvelope, reuqest interface{}, operationId string) error {
 	log.InfofCtx(ctx, "M(Solution): Enqueue message %s-%s with operation ID %+v", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace, reuqest)
+	// if target is remote, we need to subscribe the topic
 	messageID, err := s.QueueProvider.Enqueue(ctx, fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace), reuqest)
 	if err != nil {
 		log.ErrorfCtx(ctx, "M(Solution): Error in enqueue message %s", fmt.Sprintf("%s-%s", stepEnvelope.Step.Target, stepEnvelope.PlanState.Namespace))
 		return err
 	}
+	// todo: add correlation id to the message later
 	err = s.upsertOperationState(ctx, operationId, stepEnvelope.StepId, stepEnvelope.PlanState.PlanId, stepEnvelope.PlanState.PlanName, stepEnvelope.Step.Target, stepEnvelope.PlanState.Phase, stepEnvelope.PlanState.Namespace, stepEnvelope.Remove, messageID)
 	if err != nil {
 		log.ErrorfCtx(ctx, "M(Solution) Error in insert operation Id %s", operationId)
@@ -883,7 +973,7 @@ func (s *SolutionManager) saveStepResult(ctx context.Context, summary model.Summ
 }
 
 // getTaskFromQueue retrieves a task from the queue for the specified target and namespace.
-func (s *SolutionManager) GetTaskFromQueueByPaging(ctx context.Context, target string, namespace string, start string, size int) v1alpha2.COAResponse {
+func (s *SolutionManager) GetTaskFromQueueByPaging(ctx context.Context, target string, namespace string, start string, size int, requestId string) v1alpha2.COAResponse {
 	ctx, span := observability.StartSpan("Solution Vendor", ctx, &map[string]string{
 		"method": "doGetFromQueue",
 	})
@@ -892,6 +982,14 @@ func (s *SolutionManager) GetTaskFromQueueByPaging(ctx context.Context, target s
 	defer span.End()
 	var err error
 	queueElement, lastMessageID, err := s.QueueProvider.QueryByPaging(ctx, queueName, start, size)
+	if err != nil {
+		log.ErrorfCtx(ctx, "M(SolutionVendor): getQueue failed - %s", err.Error())
+		return v1alpha2.COAResponse{
+			State: v1alpha2.InternalError,
+			Body:  []byte(err.Error()),
+		}
+	}
+
 	var requestList []map[string]interface{}
 	for _, element := range queueElement {
 		var agentRequest map[string]interface{}
@@ -905,23 +1003,29 @@ func (s *SolutionManager) GetTaskFromQueueByPaging(ctx context.Context, target s
 		}
 		requestList = append(requestList, agentRequest)
 	}
-	response := &model.ProviderPagingRequest{
+
+	// Always create a response map with request list and last message ID
+	responseMap := &model.ProviderPagingRequest{
 		RequestList:   requestList,
 		LastMessageID: lastMessageID,
 	}
-	if err != nil {
-		log.ErrorfCtx(ctx, "M(SolutionVendor): getQueue failed - %s", err.Error())
-		return v1alpha2.COAResponse{
-			State: v1alpha2.InternalError,
-			Body:  []byte(err.Error()),
-		}
-	}
-	data, _ := json.Marshal(response)
-	return v1alpha2.COAResponse{
+
+	data, _ := json.Marshal(responseMap)
+	response := v1alpha2.COAResponse{
 		State:       v1alpha2.OK,
 		Body:        data,
 		ContentType: "application/json",
 	}
+
+	// Add request-id to response metadata if provided
+	if requestId != "" {
+		if response.Metadata == nil {
+			response.Metadata = make(map[string]string)
+		}
+		response.Metadata["request-id"] = requestId
+	}
+
+	return response
 }
 
 func (s *SolutionManager) DeleteSummary(ctx context.Context, summaryId string, namespace string) error {
@@ -962,7 +1066,7 @@ func (s *SolutionManager) sendHeartbeat(ctx context.Context, id string, namespac
 }
 
 // getTaskFromQueue retrieves a task from the queue for the specified target and namespace.
-func (c *SolutionManager) GetTaskFromQueue(ctx context.Context, target string, namespace string) v1alpha2.COAResponse {
+func (c *SolutionManager) GetTaskFromQueue(ctx context.Context, target string, namespace string, requestId string) v1alpha2.COAResponse {
 	ctx, span := observability.StartSpan("Solution Vendor", ctx, &map[string]string{
 		"method": "doGetFromQueue",
 	})
@@ -979,12 +1083,45 @@ func (c *SolutionManager) GetTaskFromQueue(ctx context.Context, target string, n
 			Body:  []byte(err.Error()),
 		}
 	}
-	data, _ := json.Marshal(queueElement)
-	return v1alpha2.COAResponse{
+
+	// Convert single element to unified paging format
+	var requestList []map[string]interface{}
+	if queueElement != nil {
+		var agentRequest map[string]interface{}
+		jData, _ := json.Marshal(queueElement)
+		err = utils.UnmarshalJson(jData, &agentRequest)
+		if err != nil {
+			log.ErrorfCtx(ctx, "M(SolutionVendor): failed to unmarshal element - %s", err.Error())
+			return v1alpha2.COAResponse{
+				State: v1alpha2.InternalError,
+				Body:  []byte(err.Error()),
+			}
+		}
+		requestList = append(requestList, agentRequest)
+	}
+
+	// Create unified response format with requestList and lastMessageID (empty for single request)
+	responseMap := map[string]interface{}{
+		"requestList":   requestList,
+		"lastMessageID": "", // Empty for single request since there's no paging
+	}
+
+	data, _ := json.Marshal(responseMap)
+	response := v1alpha2.COAResponse{
 		State:       v1alpha2.OK,
 		Body:        data,
 		ContentType: "application/json",
 	}
+
+	// Add request-id to response metadata if provided
+	if requestId != "" {
+		if response.Metadata == nil {
+			response.Metadata = make(map[string]string)
+		}
+		response.Metadata["request-id"] = requestId
+	}
+
+	return response
 }
 
 func (s *SolutionManager) cleanupHeartbeat(ctx context.Context, id string, namespace string, remove bool) {
@@ -1583,6 +1720,7 @@ func (s *SolutionManager) Get(ctx context.Context, deployment model.DeploymentSp
 			provider = override
 		}
 		var components []model.ComponentSpec
+
 		components, err = (provider.(tgt.ITargetProvider)).Get(ctx, deployment, step.Components)
 
 		if err != nil {
