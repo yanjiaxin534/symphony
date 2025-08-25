@@ -1,0 +1,3 @@
+[config]
+model = "gpt-4o-mini"
+fallback_models = ["gpt-4o-mini"]
