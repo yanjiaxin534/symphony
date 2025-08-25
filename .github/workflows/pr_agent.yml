@@ -15,7 +15,7 @@ jobs:
       contents: write
     steps:
       - name: PR Agent action step
-        uses: Codium-ai/pr-agent@remote-agent-ai
+        uses: Codium-ai/pr-agent@main
         env:
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
