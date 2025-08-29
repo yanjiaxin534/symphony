@@ -334,6 +334,50 @@ func (s *SolutionManager) cleanupRemoteTargetResourcesAfterDeletion(ctx context.
 			} else {
 				log.WarnfCtx(ctx, " M (Solution): Queue provider not available, skipping queue cleanup for deleted target %s", targetName)
 			}
+			_, err := s.StateProvider.Get(ctx, states.GetRequest{
+				ID: targetName,
+				Metadata: map[string]interface{}{
+					"namespace": namespace,
+					"group":     "cert-manager.io",
+					"version":   "v1",
+					"resource":  "certificates",
+					"kind":      "Certificate",
+				},
+			})
+			if err == nil {
+				log.InfoCtx(ctx, " M (Solution): found existing certificate for target %s, proceeding to delete", targetName)
+			}
+			// cleanup working cert
+			err = s.StateProvider.Delete(ctx, states.DeleteRequest{
+				ID: targetName,
+				Metadata: map[string]interface{}{
+					"namespace": namespace,
+					"group":     "cert-manager.io",
+					"version":   "v1",
+					"resource":  "certificates",
+					"kind":      "Certificate",
+				},
+			})
+			if err != nil {
+				log.WarnfCtx(ctx, " M (Solution): failed to delete working certificate for target %s: %s", targetName, err.Error())
+			} else {
+				log.InfofCtx(ctx, " M (Solution): successfully deleted working certificate for target %s", targetName)
+				_, err := s.StateProvider.Get(ctx, states.GetRequest{
+					ID: targetName,
+					Metadata: map[string]interface{}{
+						"namespace": namespace,
+						"group":     "cert-manager.io",
+						"version":   "v1",
+						"resource":  "certificates",
+						"kind":      "Certificate",
+					},
+				})
+				if err == nil {
+					log.ErrorfCtx(ctx, " M (Solution): certificate for target %s still exists after deletion attempt", targetName)
+				} else {
+					log.InfofCtx(ctx, " M (Solution): certificate for target %s successfully deleted", targetName)
+				}
+			}
 		}
 	}
 }
