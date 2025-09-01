@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -254,7 +255,7 @@ spec:
       role: remote-agent
 `, targetName, namespace, targetName)
 
-	yamlPath := filepath.Join(testDir, "target.yaml")
+	yamlPath := filepath.Join(testDir, fmt.Sprintf("%s-target.yaml", targetName))
 	err := ioutil.WriteFile(yamlPath, []byte(strings.TrimSpace(yamlContent)), 0644)
 	require.NoError(t, err)
 
@@ -845,9 +846,6 @@ func GetDynamicClient() (dynamic.Interface, error) {
 
 // WaitForTargetCreated waits for a Target resource to be created
 func WaitForTargetCreated(t *testing.T, targetName, namespace string, timeout time.Duration) {
-	dyn, err := GetDynamicClient()
-	require.NoError(t, err)
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -859,6 +857,9 @@ func WaitForTargetCreated(t *testing.T, targetName, namespace string, timeout ti
 		case <-ctx.Done():
 			t.Fatalf("Timeout waiting for Target %s/%s to be created", namespace, targetName)
 		case <-ticker.C:
+			dyn, err := GetDynamicClient()
+			require.NoError(t, err)
+
 			targets, err := dyn.Resource(schema.GroupVersionResource{
 				Group:    "fabric.symphony",
 				Version:  "v1",
@@ -3807,6 +3808,170 @@ func StartRemoteAgentProcessComplete(t *testing.T, config TestConfig) *exec.Cmd 
 	t.Logf("Started remote agent process with PID: %d using working certificates", cmd.Process.Pid)
 	t.Logf("Remote agent process logs will be shown in real-time with [Process STDOUT] and [Process STDERR] prefixes")
 	return cmd
+}
+
+// Global variables for single binary optimization
+var (
+	buildOnce        sync.Once
+	sharedBinaryPath string
+	buildError       error
+)
+
+// BuildRemoteAgentBinaryOnce builds the remote agent binary only once using sync.Once
+// This prevents multiple goroutines from building the same binary simultaneously
+func BuildRemoteAgentBinaryOnce(t *testing.T, config TestConfig) (string, error) {
+	buildOnce.Do(func() {
+		t.Logf("Building remote agent binary (once)...")
+		sharedBinaryPath = filepath.Join(config.ProjectRoot, "remote-agent", "bootstrap", "remote-agent")
+
+		buildCmd := exec.Command("go", "build", "-o", "bootstrap/remote-agent", ".")
+		buildCmd.Dir = filepath.Join(config.ProjectRoot, "remote-agent")
+		buildCmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
+
+		var stdout, stderr bytes.Buffer
+		buildCmd.Stdout = &stdout
+		buildCmd.Stderr = &stderr
+
+		buildError = buildCmd.Run()
+		if buildError != nil {
+			t.Logf("Build stdout: %s", stdout.String())
+			t.Logf("Build stderr: %s", stderr.String())
+			sharedBinaryPath = ""
+		} else {
+			t.Logf("Successfully built shared remote agent binary: %s", sharedBinaryPath)
+		}
+	})
+
+	return sharedBinaryPath, buildError
+}
+
+// StartRemoteAgentProcessWithSharedBinary starts remote agent using a shared binary path
+// This optimizes multi-target scenarios by reusing the same binary
+func StartRemoteAgentProcessWithSharedBinary(t *testing.T, config TestConfig) *exec.Cmd {
+	// Get the shared binary path
+	binaryPath, err := BuildRemoteAgentBinaryOnce(t, config)
+	require.NoError(t, err, "Failed to build shared binary")
+
+	// Use the shared binary to start the process
+	return startRemoteAgentWithExistingBinary(t, config, binaryPath)
+}
+
+// startRemoteAgentWithExistingBinary starts remote agent using an existing binary
+func startRemoteAgentWithExistingBinary(t *testing.T, config TestConfig, binaryPath string) *exec.Cmd {
+	// Phase 1: Get working certificates using bootstrap cert (HTTP protocol only)
+	var workingCertPath, workingKeyPath string
+	if config.Protocol == "http" {
+		t.Logf("Using HTTP protocol, obtaining working certificates...")
+		workingCertPath, workingKeyPath = GetWorkingCertificates(t, config.BaseURL, config.TargetName, config.Namespace,
+			config.ClientCertPath, config.ClientKeyPath, filepath.Dir(config.ConfigPath))
+	} else {
+		// For MQTT, use bootstrap certificates directly
+		workingCertPath = config.ClientCertPath
+		workingKeyPath = config.ClientKeyPath
+	}
+
+	// Phase 2: Start remote agent with working certificates
+	args := []string{
+		"-config", config.ConfigPath,
+		"-client-cert", workingCertPath,
+		"-client-key", workingKeyPath,
+		"-target-name", config.TargetName,
+		"-namespace", config.Namespace,
+		"-topology", config.TopologyPath,
+		"-protocol", config.Protocol,
+	}
+
+	if config.CACertPath != "" {
+		args = append(args, "-ca-cert", config.CACertPath)
+	}
+
+	// Log the complete binary execution command to test output
+	t.Logf("=== Remote Agent Process Execution Command (Shared Binary) ===")
+	t.Logf("Binary Path: %s", binaryPath)
+	t.Logf("Working Directory: %s", filepath.Join(config.ProjectRoot, "remote-agent", "bootstrap"))
+	t.Logf("Command Line: %s %s", binaryPath, strings.Join(args, " "))
+	t.Logf("Target: %s", config.TargetName)
+	t.Logf("===============================================")
+
+	cmd := exec.Command(binaryPath, args...)
+	// Set working directory to where the binary is located
+	cmd.Dir = filepath.Join(config.ProjectRoot, "remote-agent", "bootstrap")
+
+	// Create pipes for real-time log streaming
+	stdoutPipe, err := cmd.StdoutPipe()
+	require.NoError(t, err, "Failed to create stdout pipe")
+
+	stderrPipe, err := cmd.StderrPipe()
+	require.NoError(t, err, "Failed to create stderr pipe")
+
+	// Also capture to buffers for final output
+	var stdout, stderr bytes.Buffer
+	stdoutTee := io.TeeReader(stdoutPipe, &stdout)
+	stderrTee := io.TeeReader(stderrPipe, &stderr)
+
+	err = cmd.Start()
+	require.NoError(t, err, "Failed to start remote agent process")
+
+	// Start real-time log streaming in background goroutines
+	go streamProcessLogs(t, stdoutTee, fmt.Sprintf("Agent[%s] STDOUT", config.TargetName))
+	go streamProcessLogs(t, stderrTee, fmt.Sprintf("Agent[%s] STDERR", config.TargetName))
+
+	// Final output logging when process exits with enhanced error reporting
+	go func() {
+		exitErr := cmd.Wait()
+		exitTime := time.Now()
+
+		if exitErr != nil {
+			t.Logf("Remote agent process for target %s exited with error at %v: %v", config.TargetName, exitTime, exitErr)
+			if exitError, ok := exitErr.(*exec.ExitError); ok {
+				t.Logf("Process exit code: %d", exitError.ExitCode())
+			}
+		} else {
+			t.Logf("Remote agent process for target %s exited normally at %v", config.TargetName, exitTime)
+		}
+
+		if stdout.Len() > 0 {
+			t.Logf("Remote agent process for target %s final stdout: %s", config.TargetName, stdout.String())
+		}
+		if stderr.Len() > 0 {
+			t.Logf("Remote agent process for target %s final stderr: %s", config.TargetName, stderr.String())
+		}
+
+		// Log process runtime information
+		if cmd.ProcessState != nil {
+			t.Logf("Process runtime information for target %s - PID: %d, System time: %v, User time: %v",
+				config.TargetName, cmd.Process.Pid, cmd.ProcessState.SystemTime(), cmd.ProcessState.UserTime())
+		}
+	}()
+
+	t.Logf("Started remote agent process for target %s with PID: %d using shared binary", config.TargetName, cmd.Process.Pid)
+	return cmd
+}
+
+// CleanupMultipleRemoteAgentProcesses cleans up multiple remote agent processes in parallel
+func CleanupMultipleRemoteAgentProcesses(t *testing.T, processes map[string]*exec.Cmd) {
+	if len(processes) == 0 {
+		t.Logf("No processes to cleanup")
+		return
+	}
+
+	t.Logf("Cleaning up %d remote agent processes...", len(processes))
+	var wg sync.WaitGroup
+
+	for targetName, cmd := range processes {
+		if cmd == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(name string, process *exec.Cmd) {
+			defer wg.Done()
+			t.Logf("Cleaning up remote agent for target %s...", name)
+			CleanupRemoteAgentProcess(t, process)
+		}(targetName, cmd)
+	}
+
+	wg.Wait()
+	t.Logf("All remote agent processes cleaned up successfully")
 }
 
 // StartRemoteAgentProcessWithoutCleanup starts remote agent as a complete process but doesn't set up automatic cleanup
