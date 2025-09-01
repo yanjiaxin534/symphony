@@ -724,6 +724,7 @@ func CreateSymphonyDeploymentFromTarget(ctx context.Context, target model.Target
 		ret.Assignments[k] = v
 	}
 	ret.IsDryRun = target.Spec.IsDryRun
+	ret.IsTarget = true
 
 	return ret, nil
 }

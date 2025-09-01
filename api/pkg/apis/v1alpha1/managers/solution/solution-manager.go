@@ -67,14 +67,15 @@ const (
 
 type SolutionManager struct {
 	SummaryManager
-	TargetProviders map[string]tgt.ITargetProvider
-	ConfigProvider  config.IExtConfigProvider
-	SecretProvider  secret.ISecretProvider
-	KeyLockProvider keylock.IKeyLockProvider
-	QueueProvider   queue.IQueueProvider
-	IsTarget        bool
-	TargetNames     []string
-	ApiClientHttp   api_utils.ApiClient
+	TargetProviders  map[string]tgt.ITargetProvider
+	ConfigProvider   config.IExtConfigProvider
+	SecretProvider   secret.ISecretProvider
+	KeyLockProvider  keylock.IKeyLockProvider
+	K8sStateProvider states.IStateProvider
+	QueueProvider    queue.IQueueProvider
+	IsTarget         bool
+	TargetNames      []string
+	ApiClientHttp    api_utils.ApiClient
 }
 
 func (s *SolutionManager) Init(context *contexts.VendorContext, config managers.ManagerConfig, providers map[string]providers.IProvider) error {
@@ -92,6 +93,12 @@ func (s *SolutionManager) Init(context *contexts.VendorContext, config managers.
 	queueProvider, err := managers.GetQueueProvider(config, providers)
 	if err == nil {
 		s.QueueProvider = queueProvider
+	} else {
+		return err
+	}
+	stateprovider, err := managers.GetPersistentStateProvider(config, providers)
+	if err == nil {
+		s.K8sStateProvider = stateprovider
 	} else {
 		return err
 	}
@@ -301,40 +308,39 @@ func (s *SolutionManager) ensureRemoteTargetSubscriptions(ctx context.Context, d
 
 // cleanupRemoteTargetResourcesAfterDeletion cleans up MQTT subscriptions and Redis queues for deleted remote targets after successful deletion
 func (s *SolutionManager) cleanupRemoteTargetResourcesAfterDeletion(ctx context.Context, deployment model.DeploymentSpec, namespace string) {
-	mqttBinding := s.VendorContext.GetMQTTBinding()
-	if mqttBinding == nil {
-		log.InfofCtx(ctx, " M (Solution): MQTT binding is not initialized, skipping remote target cleanup")
-		return
-	}
-
 	// Iterate over all targets in the deployment to clean up resources for remote targets
 	for targetName, _ := range deployment.Targets {
 		isRemote := stepTargetIsRemoteTarget(deployment, targetName)
+
 		if isRemote {
-			topic := fmt.Sprintf("symphony/request/%s", targetName)
-			log.InfofCtx(ctx, " M (Solution): cleaning up MQTT subscription for deleted remote target %s, topic %s", targetName, topic)
-
-			// Unsubscribe from MQTT topic using the dedicated method
+			mqttBinding := s.VendorContext.GetMQTTBinding()
 			if mqttBinding != nil {
-				if err := mqttBinding.UnsubscribeTopic(topic); err != nil {
-					log.WarnfCtx(ctx, " M (Solution): failed to unsubscribe from MQTT topic %s for deleted target %s: %s", topic, targetName, err.Error())
+				topic := fmt.Sprintf("symphony/request/%s", targetName)
+				log.InfofCtx(ctx, " M (Solution): cleaning up MQTT subscription for deleted remote target %s, topic %s", targetName, topic)
+
+				// Unsubscribe from MQTT topic using the dedicated method
+				if mqttBinding != nil {
+					if err := mqttBinding.UnsubscribeTopic(topic); err != nil {
+						log.WarnfCtx(ctx, " M (Solution): failed to unsubscribe from MQTT topic %s for deleted target %s: %s", topic, targetName, err.Error())
+					} else {
+						log.InfofCtx(ctx, " M (Solution): successfully unsubscribed from MQTT topic %s for deleted target %s", topic, targetName)
+					}
+				}
+
+				// Clean up Redis queue
+				if s.QueueProvider != nil {
+					queueName := fmt.Sprintf("%s-%s", targetName, namespace)
+					if queueErr := s.QueueProvider.DeleteQueue(ctx, queueName); queueErr != nil {
+						log.WarnfCtx(ctx, " M (Solution): failed to delete Redis queue %s for deleted target %s: %s", queueName, targetName, queueErr.Error())
+					} else {
+						log.InfofCtx(ctx, " M (Solution): successfully deleted Redis queue %s for deleted target %s", queueName, targetName)
+					}
 				} else {
-					log.InfofCtx(ctx, " M (Solution): successfully unsubscribed from MQTT topic %s for deleted target %s", topic, targetName)
+					log.WarnfCtx(ctx, " M (Solution): Queue provider not available, skipping queue cleanup for deleted target %s", targetName)
 				}
 			}
 
-			// Clean up Redis queue
-			if s.QueueProvider != nil {
-				queueName := fmt.Sprintf("%s-%s", targetName, namespace)
-				if queueErr := s.QueueProvider.DeleteQueue(ctx, queueName); queueErr != nil {
-					log.WarnfCtx(ctx, " M (Solution): failed to delete Redis queue %s for deleted target %s: %s", queueName, targetName, queueErr.Error())
-				} else {
-					log.InfofCtx(ctx, " M (Solution): successfully deleted Redis queue %s for deleted target %s", queueName, targetName)
-				}
-			} else {
-				log.WarnfCtx(ctx, " M (Solution): Queue provider not available, skipping queue cleanup for deleted target %s", targetName)
-			}
-			_, err := s.StateProvider.Get(ctx, states.GetRequest{
+			_, err := s.K8sStateProvider.Get(ctx, states.GetRequest{
 				ID: targetName,
 				Metadata: map[string]interface{}{
 					"namespace": namespace,
@@ -348,7 +354,7 @@ func (s *SolutionManager) cleanupRemoteTargetResourcesAfterDeletion(ctx context.
 				log.InfoCtx(ctx, " M (Solution): found existing certificate for target %s, proceeding to delete", targetName)
 			}
 			// cleanup working cert
-			err = s.StateProvider.Delete(ctx, states.DeleteRequest{
+			err = s.K8sStateProvider.Delete(ctx, states.DeleteRequest{
 				ID: targetName,
 				Metadata: map[string]interface{}{
 					"namespace": namespace,
@@ -362,7 +368,7 @@ func (s *SolutionManager) cleanupRemoteTargetResourcesAfterDeletion(ctx context.
 				log.WarnfCtx(ctx, " M (Solution): failed to delete working certificate for target %s: %s", targetName, err.Error())
 			} else {
 				log.InfofCtx(ctx, " M (Solution): successfully deleted working certificate for target %s", targetName)
-				_, err := s.StateProvider.Get(ctx, states.GetRequest{
+				_, err := s.K8sStateProvider.Get(ctx, states.GetRequest{
 					ID: targetName,
 					Metadata: map[string]interface{}{
 						"namespace": namespace,
@@ -558,10 +564,13 @@ func (s *SolutionManager) handleAllPlanCompletetion(ctx context.Context, summary
 
 			// Cleanup MQTT subscriptions and Redis queues for deleted remote targets
 			// Only perform cleanup for target deletions specifically
-			if err == nil && summary.PlanState.Deployment.IsTargetDeletion {
+			log.InfoCtx(ctx)
+			if err == nil && summary.PlanState.Deployment.IsTarget {
 				log.InfofCtx(ctx, " M (Solution): performing MQTT and Redis cleanup for target deletion")
 				// to do add target check before this, when delete succeed, then delete resource
 				s.cleanupRemoteTargetResourcesAfterDeletion(ctx, summary.PlanState.Deployment, summary.PlanState.Namespace)
+			} else {
+				log.ErrorfCtx(ctx, " M (Solution): failed to delete state for instance %s in namespace %s: %+v", summary.PlanState.Deployment.Instance.ObjectMeta.Name, summary.PlanState.Namespace, err)
 			}
 		} else {
 			s.StateProvider.Upsert(ctx, states.UpsertRequest{
@@ -1192,14 +1201,14 @@ func (s *SolutionManager) Reconcile(ctx context.Context, deployment model.Deploy
 	defer observ_utils.CloseSpanWithError(span, &err)
 	defer observ_utils.EmitUserDiagnosticsLogs(ctx, &err)
 
-	log.InfofCtx(ctx, " M (Solution): reconciling deployment.InstanceName: %s, deployment.SolutionName: %s, remove: %t, namespace: %s, targetName: %s, generation: %s, jobID: %s",
+	log.InfofCtx(ctx, " M (Solution): reconciling deployment.InstanceName: %s, deployment.SolutionName: %s, remove: %t, namespace: %s, targetName: %s, generation: %s, jobID: %s, deployment is target deletion: %v",
 		deployment.Instance.ObjectMeta.Name,
 		deployment.SolutionName,
 		remove,
 		namespace,
 		targetName,
 		deployment.Generation,
-		deployment.JobID)
+		deployment.JobID, deployment.IsTarget)
 
 	if deployment.IsInActive {
 		log.InfofCtx(ctx, " M (Solution): deployment is not active, remove the deployment")

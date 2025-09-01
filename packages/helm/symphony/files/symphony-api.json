@@ -519,7 +519,8 @@
               "providers.config": "mock-config",  
               "providers.queue": "redis-queue",
               "providers.secret": "mock-secret",
-              "providers.keylock": "mem-keylock"
+              "providers.keylock": "mem-keylock",
+              "providers.persistentstate": "k8s-state"
             },
             "providers": {
               "redis-state": {
@@ -535,6 +536,12 @@
                 "config": {}
                 {{- end }}
               },
+              "k8s-state": {
+                "type": "providers.state.k8s",
+                "config": {
+                  "inCluster": true
+                }
+              }
               "mem-keylock": {
                 "type": "providers.keylock.memory",
                 "config": {
