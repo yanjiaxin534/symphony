@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eclipse-symphony/symphony/test/integration/scenarios/13.remoteAgent/utils"
+	"github.com/eclipse-symphony/symphony/test/integration/scenarios/13.remoteAgent-linux/utils"
 	"github.com/stretchr/testify/require"
 )
 
