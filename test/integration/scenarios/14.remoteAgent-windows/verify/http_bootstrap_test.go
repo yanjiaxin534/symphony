@@ -4,6 +4,7 @@ package verify
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -25,34 +26,59 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 	testDir := utils.CreateWindowsTestDirectory(t)
 	t.Logf("Running Windows HTTP bootstrap test in: %s", testDir)
 
-	// Step 1: Environment Setup - Note: Assuming minikube/k8s cluster is already running
-	// Unlike Linux version, we skip the fresh minikube setup as this should be handled externally
-	t.Run("VerifyKubernetesEnvironment", func(t *testing.T) {
-		// Verify kubectl is available and cluster is accessible
-		err := utils.ApplyKubernetesManifestWindows(t, "-")
-		if err == nil {
-			t.Logf("Kubernetes cluster is accessible")
-		} else {
-			t.Skip("Skipping test - Kubernetes cluster not available")
-		}
+	// Step 1: Start fresh minikube cluster
+	t.Run("SetupFreshMinikubeCluster", func(t *testing.T) {
+		utils.StartFreshMinikubeWindows(t)
+	})
+
+	// Ensure minikube is cleaned up after test
+	t.Cleanup(func() {
+		utils.CleanupMinikubeWindows(t)
 	})
 
 	// Generate test certificates with HTTP protocol (PFX format required)
 	certs := utils.GenerateWindowsCertificatesWithProtocol(t, testDir, "http")
 
+	var caSecretName, clientSecretName string
 	var configPath, topologyPath, targetYamlPath string
 	var symphonyCAPath, baseURL string
 
-	// Step 2: Setup Symphony connection (assuming Symphony server is running)
+	// Suppress unused variable warnings for now
+	_ = caSecretName
+	_ = clientSecretName
+
+	t.Run("CreateCertificateSecrets", func(t *testing.T) {
+		// Create CA secret in cert-manager namespace
+		caSecretName = utils.CreateCASecretWindows(t, certs)
+
+		// Create client cert secret in test namespace
+		clientSecretName = utils.CreateClientCertSecretWindows(t, namespace, certs)
+	})
+
+	t.Run("StartSymphonyServer", func(t *testing.T) {
+		utils.StartSymphonyWithRemoteAgentConfigWindows(t, "http")
+
+		// Wait for Symphony server certificate to be created
+		utils.WaitForSymphonyServerCertWindows(t, 5*time.Minute)
+	})
+
+	var portForwardCmd *exec.Cmd
+
 	t.Run("SetupSymphonyConnection", func(t *testing.T) {
-		// For Windows testing, we'll assume Symphony server is accessible at a known endpoint
-		// In a real environment, this would be configured externally
-		baseURL = "https://symphony-service:8081/v1alpha2"
-		// For testing purposes, we'll use the generated CA as Symphony CA
-		symphonyCAPath = certs.CACert
-		t.Logf("Using Symphony server at: %s", baseURL)
+		// Set up hosts mapping first
+		utils.SetupSymphonyHostsWindows(t)
+
+		// Start port forward and keep it active
+		portForwardCmd = utils.StartPortForwardWindowsWithoutCleanup(t)
+
+		// Extract the actual Symphony server CA certificate from Kubernetes secret
+		symphonyCAPath = utils.ExtractSymphonyCAToFileWindows(t, testDir)
 		t.Logf("Using Symphony CA certificate: %s", symphonyCAPath)
 	})
+
+	// Setup base URL after port forwarding
+	baseURL = "https://symphony-service:8081/v1alpha2"
+	t.Logf("Symphony server accessible at: %s", baseURL)
 
 	// Step 3: Create test configurations
 	t.Run("CreateTestConfigurations", func(t *testing.T) {
@@ -163,9 +189,21 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 
 	// Cleanup
 	t.Cleanup(func() {
-		// Clean up Windows service first
+		// Clean up hosts entry first to restore network settings
+		utils.RemoveHostsEntryWindows(t, "symphony-service")
+
+		// Clean up port-forward first
+		if portForwardCmd != nil && portForwardCmd.Process != nil {
+			portForwardCmd.Process.Kill()
+			t.Logf("Killed port-forward process with PID: %d", portForwardCmd.Process.Pid)
+		}
+
+		// Clean up Windows service
 		serviceName := fmt.Sprintf("Symphony-RemoteAgent-%s", targetName)
 		utils.CleanupWindowsService(t, serviceName)
+
+		// Clean up Symphony and other resources
+		utils.CleanupSymphonyWindows(t)
 
 		// Clean up test directory
 		if testDir != "" {

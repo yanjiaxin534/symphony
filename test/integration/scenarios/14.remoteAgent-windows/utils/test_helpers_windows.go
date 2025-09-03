@@ -99,6 +99,11 @@ func GetWindowsProjectRoot(t *testing.T) string {
 	}
 }
 
+// GetProjectRoot returns the project root directory (alias for GetWindowsProjectRoot for consistency)
+func GetProjectRoot(t *testing.T) string {
+	return GetWindowsProjectRoot(t)
+}
+
 // GenerateWindowsCertificates generates certificates suitable for Windows testing
 func GenerateWindowsCertificates(t *testing.T, testDir string) WindowsCertificatePaths {
 	return GenerateWindowsCertificatesWithProtocol(t, testDir, "http")
@@ -411,12 +416,19 @@ func generatePFXCertificate(t *testing.T, certPath, keyPath, pfxPath, password s
 	return nil
 }
 
-// ExecutePowerShell7Script executes a PowerShell script specifically using pwsh (PowerShell 7)
+// ExecutePowerShell7Script executes a PowerShell script, preferring PowerShell 7 but falling back to Windows PowerShell
 func ExecutePowerShell7Script(t *testing.T, scriptPath string, args []string, workingDir string) *exec.Cmd {
-	t.Logf("Executing PowerShell 7 script: %s with args: %v", scriptPath, args)
+	t.Logf("Executing PowerShell script (preferring PS7): %s with args: %v", scriptPath, args)
 
-	// Use pwsh (PowerShell 7) specifically for GitHub Actions compatibility
-	psExe := "pwsh"
+	// Try PowerShell 7 first, fall back to Windows PowerShell
+	var psExe string
+	if _, err := exec.LookPath("pwsh"); err == nil {
+		psExe = "pwsh"
+		t.Logf("Using PowerShell 7 (pwsh)")
+	} else {
+		psExe = "powershell"
+		t.Logf("PowerShell 7 not found, falling back to Windows PowerShell")
+	}
 
 	// Build PowerShell command arguments
 	psArgs := []string{
@@ -434,7 +446,7 @@ func ExecutePowerShell7Script(t *testing.T, scriptPath string, args []string, wo
 	// Set environment to avoid interactive prompts
 	cmd.Env = append(os.Environ(), "POWERSHELL_TELEMETRY_OPTOUT=1")
 
-	t.Logf("PowerShell 7 command: %s %s", psExe, strings.Join(psArgs, " "))
+	t.Logf("PowerShell command: %s %s", psExe, strings.Join(psArgs, " "))
 	return cmd
 }
 
@@ -1137,27 +1149,6 @@ func VerifyKubectlInstallationWindows(t *testing.T) {
 	t.Logf("kubectl is available: %s", string(output))
 }
 
-// StartFreshMinikubeWindows starts a fresh minikube cluster on Windows
-func StartFreshMinikubeWindows(t *testing.T) {
-	t.Logf("Starting fresh minikube cluster on Windows...")
-
-	// Delete existing minikube cluster if it exists
-	cmd := exec.Command("minikube", "delete")
-	cmd.Run() // Ignore errors if cluster doesn't exist
-
-	// Start new minikube cluster
-	cmd = exec.Command("minikube", "start", "--driver=docker")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to start minikube: %v\nOutput: %s", err, string(output))
-	}
-	t.Logf("Minikube started successfully: %s", string(output))
-
-	// Wait for cluster to be ready
-	t.Logf("Waiting for minikube cluster to be ready...")
-	time.Sleep(30 * time.Second)
-}
-
 // CleanupMinikubeWindows cleans up the minikube cluster on Windows
 func CleanupMinikubeWindows(t *testing.T) {
 	t.Logf("Cleaning up minikube cluster on Windows...")
@@ -1294,11 +1285,602 @@ func WaitForSymphonyServerCertWindows(t *testing.T, timeout time.Duration) {
 	t.Logf("Symphony server certificate wait completed on Windows")
 }
 
+// StartFreshMinikubeWindows starts a fresh minikube cluster on Windows with optimized settings
+func StartFreshMinikubeWindows(t *testing.T) {
+	t.Logf("Creating fresh minikube cluster for Windows E2E testing...")
+
+	// Step 1: Always delete any existing cluster first
+	t.Logf("Deleting any existing minikube cluster...")
+	cmd := exec.Command("minikube", "delete")
+	cmd.Run() // Ignore errors - cluster might not exist
+
+	// Wait for cleanup to complete
+	time.Sleep(5 * time.Second)
+
+	// Step 2: Start new cluster with Windows-optimized settings
+	t.Logf("Starting new minikube cluster...")
+	cmd = exec.Command("minikube", "start", "--driver=docker", "--memory=4096", "--cpus=2")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		t.Logf("Minikube start stdout: %s", stdout.String())
+		t.Logf("Minikube start stderr: %s", stderr.String())
+		t.Fatalf("Failed to start minikube on Windows: %v", err)
+	}
+
+	// Step 3: Wait for cluster to be fully ready
+	WaitForMinikubeReadyWindows(t, 5*time.Minute)
+
+	t.Logf("Fresh minikube cluster is ready for Windows testing")
+}
+
+// WaitForMinikubeReadyWindows waits for the cluster to be fully operational on Windows
+func WaitForMinikubeReadyWindows(t *testing.T, timeout time.Duration) {
+	t.Logf("Waiting for minikube cluster to be ready on Windows...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Timeout waiting for minikube to be ready after %v", timeout)
+		case <-ticker.C:
+			// Check 1: Can we get nodes?
+			cmd := exec.Command("kubectl", "get", "nodes")
+			if cmd.Run() != nil {
+				t.Logf("Still waiting for kubectl to connect...")
+				continue
+			}
+
+			// Check 2: Can we create secrets?
+			cmd = exec.Command("kubectl", "auth", "can-i", "create", "secrets")
+			if cmd.Run() != nil {
+				t.Logf("Still waiting for RBAC permissions...")
+				continue
+			}
+
+			// Check 3: Are system pods running?
+			cmd = exec.Command("kubectl", "get", "pods", "-n", "kube-system", "--field-selector=status.phase=Running")
+			output, err := cmd.Output()
+			if err != nil || len(strings.TrimSpace(string(output))) == 0 {
+				t.Logf("Still waiting for system pods to be running...")
+				continue
+			}
+
+			t.Logf("Minikube cluster is fully ready on Windows!")
+			return
+		}
+	}
+}
+
+// StartSymphonyWithRemoteAgentConfigWindows starts Symphony with remote agent configuration on Windows
+func StartSymphonyWithRemoteAgentConfigWindows(t *testing.T, protocol string) {
+	projectRoot := GetWindowsProjectRoot(t)
+	localenvDir := filepath.Join(projectRoot, "test", "localenv")
+
+	t.Logf("StartSymphonyWithRemoteAgentConfigWindows: Project root: %s", projectRoot)
+	t.Logf("StartSymphonyWithRemoteAgentConfigWindows: Localenv dir: %s", localenvDir)
+
+	// Check if localenv directory exists
+	if _, err := os.Stat(localenvDir); os.IsNotExist(err) {
+		t.Fatalf("Localenv directory does not exist: %s", localenvDir)
+	}
+
+	var helmValues string
+	if protocol == "http" {
+		helmValues = "--set remoteAgent.remoteCert.used=true " +
+			"--set remoteAgent.remoteCert.trustCAs.secretName=client-cert-secret " +
+			"--set remoteAgent.remoteCert.trustCAs.secretKey=ca.crt " +
+			"--set remoteAgent.remoteCert.subjects=remote-agent-client " +
+			"--set certManager.enabled=true " +
+			"--set api.env.ISSUER_NAME=symphony-ca-issuer " +
+			"--set api.env.SYMPHONY_SERVICE_NAME=symphony-service"
+	} else if protocol == "mqtt" {
+		helmValues = "--set remoteAgent.remoteCert.used=true " +
+			"--set remoteAgent.remoteCert.trustCAs.secretName=client-cert-secret " +
+			"--set remoteAgent.remoteCert.trustCAs.secretKey=ca.crt " +
+			"--set remoteAgent.remoteCert.subjects=remote-agent-client " +
+			"--set mqtt.mqttClientCert.enabled=true " +
+			"--set mqtt.mqttClientCert.secretName=mqtt-client-secret " +
+			"--set mqtt.mqttClientCert.crt=client.crt " +
+			"--set mqtt.mqttClientCert.key=client.key " +
+			"--set mqtt.brokerAddress=tls://localhost:8883 " +
+			"--set mqtt.enabled=true --set mqtt.useTLS=true " +
+			"--set certManager.enabled=true " +
+			"--set api.env.ISSUER_NAME=symphony-ca-issuer " +
+			"--set api.env.SYMPHONY_SERVICE_NAME=symphony-service"
+	}
+
+	cmd := exec.Command("mage", "cluster:deploywithsettings", helmValues)
+	cmd.Dir = localenvDir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		t.Logf("Symphony deployment stdout: %s", stdout.String())
+		t.Logf("Symphony deployment stderr: %s", stderr.String())
+
+		// Check if the error is related to cert-manager webhook
+		stderrStr := stderr.String()
+		if strings.Contains(stderrStr, "cert-manager-webhook") &&
+			strings.Contains(stderrStr, "x509: certificate signed by unknown authority") {
+			t.Logf("Detected cert-manager webhook certificate issue, attempting to fix...")
+			FixCertManagerWebhookWindows(t)
+
+			// Retry the deployment after fixing cert-manager
+			t.Logf("Retrying Symphony deployment after cert-manager fix...")
+			retryCmd := exec.Command("mage", "cluster:deploywithsettings", helmValues)
+			retryCmd.Dir = localenvDir
+
+			var retryStdout, retryStderr bytes.Buffer
+			retryCmd.Stdout = &retryStdout
+			retryCmd.Stderr = &retryStderr
+
+			retryErr := retryCmd.Run()
+			if retryErr != nil {
+				t.Logf("Retry deployment stdout: %s", retryStdout.String())
+				t.Logf("Retry deployment stderr: %s", retryStderr.String())
+				t.Fatalf("Symphony deployment failed on Windows even after cert-manager fix: %v", retryErr)
+			} else {
+				t.Logf("Symphony deployment succeeded after cert-manager fix")
+				err = nil // Clear the original error since retry succeeded
+			}
+		}
+	}
+	if err != nil {
+		t.Fatalf("Symphony deployment failed on Windows: %v", err)
+	}
+
+	t.Logf("Started Symphony with remote agent configuration for %s protocol on Windows", protocol)
+}
+
+// CreateCASecretWindows creates CA secret in cert-manager namespace for Windows
+func CreateCASecretWindows(t *testing.T, certs WindowsCertificatePaths) string {
+	secretName := "client-cert-secret"
+
+	// Ensure cert-manager namespace exists
+	cmd := exec.Command("kubectl", "create", "namespace", "cert-manager")
+	cmd.Run() // Ignore error if namespace already exists
+
+	// Create CA secret in cert-manager namespace with correct key name
+	cmd = exec.Command("kubectl", "create", "secret", "generic", secretName,
+		"--from-file=ca.crt="+certs.CACert,
+		"-n", "cert-manager")
+
+	err := cmd.Run()
+	if err != nil {
+		t.Logf("Warning: Failed to create CA secret (may already exist): %v", err)
+	} else {
+		t.Logf("Created CA secret %s in cert-manager namespace", secretName)
+	}
+	return secretName
+}
+
+// CreateClientCertSecretWindows creates client certificate secret in test namespace for Windows
+func CreateClientCertSecretWindows(t *testing.T, namespace string, certs WindowsCertificatePaths) string {
+	secretName := "remote-agent-client-secret"
+
+	cmd := exec.Command("kubectl", "create", "secret", "generic", secretName,
+		"--from-file=client.crt="+certs.ClientPEM,
+		"--from-file=client.key="+certs.ClientKey,
+		"-n", namespace)
+
+	err := cmd.Run()
+	if err != nil {
+		t.Logf("Warning: Failed to create client cert secret (may already exist): %v", err)
+	} else {
+		t.Logf("Created client cert secret %s in namespace %s", secretName, namespace)
+	}
+	return secretName
+}
+
+// StartPortForwardWindows starts kubectl port-forward for Symphony service on Windows
+func StartPortForwardWindows(t *testing.T) *exec.Cmd {
+	t.Logf("Starting port-forward for Symphony service on Windows...")
+
+	cmd := exec.Command("kubectl", "port-forward", "svc/symphony-service", "8081:8081", "-n", "default")
+	err := cmd.Start()
+	if err != nil {
+		t.Fatalf("Failed to start port-forward on Windows: %v", err)
+	}
+
+	// Wait for port-forward to be truly ready
+	WaitForPortForwardReadyWindows(t, "127.0.0.1:8081", 30*time.Second)
+
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			t.Logf("Killed port-forward process with PID: %d", cmd.Process.Pid)
+		}
+	})
+
+	t.Logf("Port-forward started with PID: %d and is ready for connections", cmd.Process.Pid)
+	return cmd
+}
+
+// StartPortForwardWindowsWithoutCleanup starts kubectl port-forward for Symphony service on Windows without auto-cleanup
+func StartPortForwardWindowsWithoutCleanup(t *testing.T) *exec.Cmd {
+	t.Logf("Starting port-forward for Symphony service on Windows (without auto-cleanup)...")
+
+	cmd := exec.Command("kubectl", "port-forward", "svc/symphony-service", "8081:8081", "-n", "default")
+	err := cmd.Start()
+	if err != nil {
+		t.Fatalf("Failed to start port-forward on Windows: %v", err)
+	}
+
+	// Wait for port-forward to be truly ready
+	WaitForPortForwardReadyWindows(t, "127.0.0.1:8081", 30*time.Second)
+
+	t.Logf("Port-forward started with PID: %d and is ready for connections", cmd.Process.Pid)
+	return cmd
+}
+
+// WaitForPortForwardReadyWindows waits for port-forward to be ready by testing TCP connection on Windows
+func WaitForPortForwardReadyWindows(t *testing.T, address string, timeout time.Duration) {
+	t.Logf("Waiting for port-forward to be ready at %s...", address)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("Timeout waiting for port-forward to be ready at %s after %v", address, timeout)
+		case <-ticker.C:
+			conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+			if err == nil {
+				conn.Close()
+				t.Logf("Port-forward is ready and accepting connections at %s", address)
+				return
+			}
+			t.Logf("Still waiting for port-forward at %s... (error: %v)", address, err)
+		}
+	}
+}
+
+// WaitForSymphonyServiceReadyWindows waits for Symphony service to be ready and accessible on Windows
+func WaitForSymphonyServiceReadyWindows(t *testing.T, timeout time.Duration) {
+	t.Logf("Waiting for Symphony service to be ready on Windows...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Before failing, let's get some debug information
+			t.Logf("Timeout waiting for Symphony service on Windows. Getting debug information...")
+
+			// Check pod status
+			cmd := exec.Command("kubectl", "get", "pods", "-n", "default", "-l", "app.kubernetes.io/name=symphony")
+			if output, err := cmd.CombinedOutput(); err == nil {
+				t.Logf("Symphony pods status:\n%s", string(output))
+			}
+
+			// Check service status
+			cmd = exec.Command("kubectl", "get", "svc", "symphony-service", "-n", "default")
+			if output, err := cmd.CombinedOutput(); err == nil {
+				t.Logf("Symphony service status:\n%s", string(output))
+			}
+
+			t.Fatalf("Timeout waiting for Symphony service to be ready after %v", timeout)
+		case <-ticker.C:
+			// Check if Symphony API deployment is ready
+			cmd := exec.Command("kubectl", "get", "deployment", "symphony-api", "-n", "default", "-o", "jsonpath={.status.readyReplicas}")
+			output, err := cmd.Output()
+			if err != nil {
+				t.Logf("Failed to check symphony-api deployment status: %v", err)
+				continue
+			}
+
+			readyReplicas := strings.TrimSpace(string(output))
+			if readyReplicas == "" || readyReplicas == "0" {
+				t.Logf("Symphony API deployment not ready yet (ready replicas: %s)", readyReplicas)
+				continue
+			}
+
+			t.Logf("Symphony API deployment is ready with %s replicas", readyReplicas)
+			return
+		}
+	}
+}
+
+// FixCertManagerWebhookWindows fixes cert-manager webhook certificate issues on Windows
+func FixCertManagerWebhookWindows(t *testing.T) {
+	t.Logf("Fixing cert-manager webhook certificate issues on Windows...")
+
+	// Delete webhook configurations to force recreation
+	webhookConfigs := []string{
+		"cert-manager-webhook",
+		"cert-manager-cainjector",
+	}
+
+	for _, config := range webhookConfigs {
+		t.Logf("Deleting validating webhook configuration: %s", config)
+		cmd := exec.Command("kubectl", "delete", "validatingwebhookconfiguration", config, "--ignore-not-found=true")
+		cmd.Run() // Ignore errors as the webhook might not exist
+
+		t.Logf("Deleting mutating webhook configuration: %s", config)
+		cmd = exec.Command("kubectl", "delete", "mutatingwebhookconfiguration", config, "--ignore-not-found=true")
+		cmd.Run() // Ignore errors as the webhook might not exist
+	}
+
+	// Restart cert-manager pods to regenerate certificates
+	t.Logf("Restarting cert-manager deployments...")
+	deployments := []string{
+		"cert-manager",
+		"cert-manager-webhook",
+		"cert-manager-cainjector",
+	}
+
+	for _, deployment := range deployments {
+		cmd := exec.Command("kubectl", "rollout", "restart", "deployment", deployment, "-n", "cert-manager")
+		if err := cmd.Run(); err != nil {
+			t.Logf("Warning: Failed to restart deployment %s: %v", deployment, err)
+		}
+	}
+
+	// Wait for cert-manager to be ready again
+	t.Logf("Waiting for cert-manager to be ready after restart...")
+	time.Sleep(10 * time.Second)
+
+	t.Logf("Cert-manager webhook fix completed on Windows")
+}
+
+// SetupSymphonyHostsWindows configures hosts file for Symphony service access on Windows
+func SetupSymphonyHostsWindows(t *testing.T) {
+	t.Logf("Setting up hosts entry for Symphony service on Windows...")
+
+	// Add symphony-service -> 127.0.0.1 mapping
+	hostsEntry := "127.0.0.1 symphony-service"
+
+	// Use PowerShell to add hosts entry (requires admin privileges)
+	psScript := fmt.Sprintf(`
+$hostsPath = "$env:windir\System32\drivers\etc\hosts"
+$entry = "%s"
+Add-Content -Path $hostsPath -Value $entry
+`, hostsEntry)
+
+	tempScriptFile := filepath.Join(os.TempDir(), "add_hosts_entry.ps1")
+	err := ioutil.WriteFile(tempScriptFile, []byte(psScript), 0644)
+	if err != nil {
+		t.Logf("Warning: Failed to create hosts script: %v", err)
+		return
+	}
+	defer os.Remove(tempScriptFile)
+
+	// Execute with elevated privileges
+	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", tempScriptFile)
+	err = cmd.Run()
+	if err != nil {
+		t.Logf("Warning: Failed to add hosts entry (may require admin privileges): %v", err)
+	} else {
+		t.Logf("Added hosts entry: %s", hostsEntry)
+	}
+
+	// NOTE: Cleanup is NOT set here to avoid premature removal during subtests
+	// The calling test should handle cleanup explicitly when appropriate
+}
+
+// RemoveHostsEntryWindows removes an entry from hosts file on Windows
+func RemoveHostsEntryWindows(t *testing.T, hostname string) {
+	t.Logf("Removing hosts entry for: %s", hostname)
+
+	psScript := fmt.Sprintf(`
+$hostsPath = "$env:windir\System32\drivers\etc\hosts"
+$content = Get-Content $hostsPath | Where-Object { $_ -notmatch "127.0.0.1 %s" }
+Set-Content -Path $hostsPath -Value $content
+`, hostname)
+
+	tempScriptFile := filepath.Join(os.TempDir(), "remove_hosts_entry.ps1")
+	err := ioutil.WriteFile(tempScriptFile, []byte(psScript), 0644)
+	if err != nil {
+		t.Logf("Warning: Failed to create hosts removal script: %v", err)
+		return
+	}
+	defer os.Remove(tempScriptFile)
+
+	cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", tempScriptFile)
+	if err := cmd.Run(); err != nil {
+		t.Logf("Warning: Failed to remove hosts entry for %s: %v", hostname, err)
+	} else {
+		t.Logf("Removed hosts entry for: %s", hostname)
+	}
+}
+
+// ExtractAndImportSymphonyCACertWindows extracts CA certificate from Kubernetes secret and imports it into Windows certificate store
+func ExtractAndImportSymphonyCACertWindows(t *testing.T, timeout time.Duration) error {
+	t.Logf("Extracting and importing Symphony CA certificate on Windows...")
+
+	// Wait for symphony-api-serving-cert secret to be available
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for symphony-api-serving-cert secret after %v", timeout)
+		case <-ticker.C:
+			// Check if secret exists
+			cmd := exec.Command("kubectl", "get", "secret", "-n", "default", "symphony-api-serving-cert", "--ignore-not-found")
+			err := cmd.Run()
+			if err == nil {
+				t.Logf("symphony-api-serving-cert secret found")
+				goto extractCert
+			}
+			t.Logf("Waiting for symphony-api-serving-cert secret to be created...")
+		}
+	}
+
+extractCert:
+	// Extract CA certificate from secret
+	t.Logf("Extracting CA certificate from symphony-api-serving-cert secret...")
+	cmd := exec.Command("kubectl", "get", "secret", "-n", "default", "symphony-api-serving-cert", "-o", "jsonpath={.data['ca\\.crt']}")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to extract CA certificate from secret: %v", err)
+	}
+
+	caCertB64 := strings.TrimSpace(string(output))
+	if caCertB64 == "" {
+		return fmt.Errorf("CA certificate data is empty in symphony-api-serving-cert secret")
+	}
+
+	// Create temporary directory for certificate
+	tempDir := CreateWindowsTestDirectory(t)
+	localCAPath := filepath.Join(tempDir, "symphony-ca.crt")
+
+	// Use PowerShell to decode base64 and save certificate
+	psScript := fmt.Sprintf(`
+$ErrorActionPreference = "Stop"
+try {
+    Write-Output "Decoding base64 CA certificate..."
+    $base64String = '%s'
+    $certBytes = [System.Convert]::FromBase64String($base64String)
+    [System.IO.File]::WriteAllBytes('%s', $certBytes)
+    Write-Output "CA certificate saved to: %s"
+} catch {
+    Write-Error "Failed to decode and save CA certificate: $_"
+    throw $_
+}`, caCertB64, localCAPath, localCAPath)
+
+	tempScriptFile := filepath.Join(tempDir, "decode_ca_cert.ps1")
+	err = ioutil.WriteFile(tempScriptFile, []byte(psScript), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write PowerShell script: %v", err)
+	}
+	defer os.Remove(tempScriptFile)
+
+	// Execute PowerShell script to decode certificate
+	cmd = ExecutePowerShell7Script(t, tempScriptFile, []string{}, tempDir)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	if err != nil {
+		t.Logf("PowerShell decode stdout: %s", stdout.String())
+		t.Logf("PowerShell decode stderr: %s", stderr.String())
+		return fmt.Errorf("failed to decode CA certificate: %v", err)
+	}
+
+	// Verify certificate file exists
+	if !FileExistsWindows(localCAPath) {
+		return fmt.Errorf("CA certificate file was not created at %s", localCAPath)
+	}
+
+	t.Logf("Successfully extracted CA certificate to: %s", localCAPath)
+
+	// Import CA certificate into Windows certificate store
+	t.Logf("Importing CA certificate into Windows certificate store...")
+
+	importScript := fmt.Sprintf(`
+$ErrorActionPreference = "Stop"
+try {
+    Write-Output "Importing CA certificate into Windows certificate store..."
+    
+    # Check if running as administrator
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    
+    if ($isAdmin) {
+        Write-Output "Running as administrator - importing into LocalMachine\\Root store"
+        Import-Certificate -FilePath '%s' -CertStoreLocation Cert:\\LocalMachine\\Root | Out-Null
+        Write-Output "Successfully imported CA certificate into LocalMachine\\Root store"
+    } else {
+        Write-Output "Running as regular user - importing into CurrentUser\\Root store"
+        Import-Certificate -FilePath '%s' -CertStoreLocation Cert:\\CurrentUser\\Root | Out-Null
+        Write-Output "Successfully imported CA certificate into CurrentUser\\Root store"
+    }
+    
+    # Verify certificate was imported by checking thumbprint
+    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2('%s')
+    Write-Output "Imported certificate details:"
+    Write-Output "  Subject: $($cert.Subject)"
+    Write-Output "  Thumbprint: $($cert.Thumbprint)"
+    Write-Output "  Valid From: $($cert.NotBefore)"
+    Write-Output "  Valid To: $($cert.NotAfter)"
+    
+} catch {
+    Write-Error "Failed to import CA certificate: $_"
+    throw $_
+}`, localCAPath, localCAPath, localCAPath)
+
+	importScriptFile := filepath.Join(tempDir, "import_ca_cert.ps1")
+	err = ioutil.WriteFile(importScriptFile, []byte(importScript), 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write import script: %v", err)
+	}
+	defer os.Remove(importScriptFile)
+
+	// Execute import script
+	cmd = ExecutePowerShell7Script(t, importScriptFile, []string{}, tempDir)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	stdout.Reset()
+	stderr.Reset()
+
+	err = cmd.Run()
+	if err != nil {
+		t.Logf("PowerShell import stdout: %s", stdout.String())
+		t.Logf("PowerShell import stderr: %s", stderr.String())
+		return fmt.Errorf("failed to import CA certificate: %v", err)
+	}
+
+	t.Logf("Successfully imported Symphony CA certificate into Windows certificate store")
+	t.Logf("Import output: %s", stdout.String())
+
+	return nil
+}
+
+// SetupWindowsCertificateValidation sets up proper certificate validation for Windows tests
+func SetupWindowsCertificateValidation(t *testing.T) {
+	t.Logf("Setting up Windows certificate validation...")
+
+	// Extract and import Symphony CA certificate
+	err := ExtractAndImportSymphonyCACertWindows(t, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("Failed to set up certificate validation: %v", err)
+	}
+
+	t.Logf("Windows certificate validation setup completed successfully")
+}
+
 // CleanupSymphonyWindows cleans up Symphony on Windows
 func CleanupSymphonyWindows(t *testing.T) {
 	t.Logf("Cleaning up Symphony on Windows...")
 
-	// This would clean up Symphony deployment, secrets, etc.
-	// For now, it's a placeholder
+	// Dump logs first
+	projectRoot := GetWindowsProjectRoot(t)
+	localenvDir := filepath.Join(projectRoot, "test", "localenv")
+
+	cmd := exec.Command("mage", "dumpSymphonyLogsForTest", fmt.Sprintf("'%s'", t.Name()))
+	cmd.Dir = localenvDir
+	cmd.Run()
+
+	// Destroy symphony
+	cmd = exec.Command("mage", "destroy", "all,nowait")
+	cmd.Dir = localenvDir
+	cmd.Run()
+
 	t.Logf("Symphony cleanup completed on Windows")
 }

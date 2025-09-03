@@ -23,7 +23,9 @@ param (
     [Parameter(Mandatory=$false)]
     [string]$ca_cert_path,
     [Parameter(Mandatory=$false)]
-    [bool]$use_cert_subject = $false
+    [bool]$use_cert_subject = $false,
+    [Parameter(Mandatory=$false)]
+    [string]$cert_password
 )
 function usage {
     Write-Host "Usage for HTTP mode:" -ForegroundColor Yellow
@@ -50,13 +52,16 @@ if ($protocol -eq "http") {
         usage
     }
     
-    # Only prompt for certificate password in HTTP mode
+    # Only prompt for certificate password in HTTP mode if not provided
     if (-not $cert_password) {
-        $cert_password = Read-Host "Please enter the certificate password (input will be hidden)" -AsSecureString
+        $cert_password_secure = Read-Host "Please enter the certificate password (input will be hidden)" -AsSecureString
+        $cert_password_plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($cert_password_secure)
+        )
+    } else {
+        # Password provided as parameter, use it directly
+        $cert_password_plain = $cert_password
     }
-    $cert_password_plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($cert_password)
-    )
     
     # Validate the certificate password for HTTP mode
     if ([string]::IsNullOrEmpty($cert_password_plain)) {
@@ -117,6 +122,36 @@ if (-not (Test-Path $topology)) {
 
 Import-Module PKI
 
+# Import CA certificate if provided and protocol is http
+if ($protocol -eq 'http' -and $ca_cert_path -and (Test-Path $ca_cert_path)) {
+    Write-Host "Importing CA certificate from: $ca_cert_path" -ForegroundColor Blue
+    try {
+        # Import the CA certificate to the LocalMachine\Root store for system-wide trust
+        $caCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($ca_cert_path)
+        $store = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+        $store.Open("ReadWrite")
+        
+        # Check if certificate already exists
+        $existingCert = $store.Certificates | Where-Object { $_.Thumbprint -eq $caCert.Thumbprint }
+        if ($existingCert) {
+            Write-Host "CA certificate already exists in store (Thumbprint: $($caCert.Thumbprint))" -ForegroundColor Yellow
+        } else {
+            $store.Add($caCert)
+            Write-Host "Successfully imported CA certificate to LocalMachine\Root store" -ForegroundColor Green
+            Write-Host "CA Cert Subject: $($caCert.Subject)" -ForegroundColor Cyan
+            Write-Host "CA Cert Thumbprint: $($caCert.Thumbprint)" -ForegroundColor Cyan
+        }
+        $store.Close()
+    } catch {
+        Write-Host "Error: Failed to import CA certificate" -ForegroundColor Red
+        Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+        exit 1
+    }
+} elseif ($ca_cert_path) {
+    Write-Host "Error: CA certificate file not found at path: $ca_cert_path" -ForegroundColor Red
+    exit 1
+}
+
 # Create the JSON configuration based on protocol
 Write-Host "Creating JSON configuration for $protocol mode..." -ForegroundColor Green
 if ($protocol -eq "http") {
@@ -174,21 +209,29 @@ if ($protocol -eq 'http') {
         exit 1
     }
     
-    # HTTP mode: Get certificates from server
+    # HTTP mode: Get certificates from server using standard SSL validation
     try {
+        Write-Host "Requesting certificates from Symphony server using standard SSL validation..." -ForegroundColor Blue
+        
+        # Prepare web request parameters
         $WebRequestParams = @{
             Uri = "$($endpoint)/targets/getcert/$($target_name)?namespace=$($namespace)&osPlatform=windows"
             Method = 'Post'
             Certificate = $cert  
             Headers = @{ "Content-Type" = "application/json"; "User-Agent" = "PowerShell-Debug" }
         }
+        
+        Write-Host "Using standard SSL certificate validation" -ForegroundColor Green
+        
         Write-Host "WebRequestParams:" -ForegroundColor Cyan
         $WebRequestParams.GetEnumerator() | ForEach-Object { Write-Host ("  {0}: {1}" -f $_.Key, $_.Value) }
         $response = Invoke-WebRequest @WebRequestParams -Verbose
         Write-Host "Successfully got working certificates from symphony server" -ForegroundColor Green
+        
     } catch {
         Write-Host "Error: Failed to send request to endpoint." -ForegroundColor Red
         Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+        
         exit 1
     }
     
@@ -216,16 +259,22 @@ if ($protocol -eq 'http') {
     # Download remote-agent binary
     Write-Host "Begin to download remote-agent binary file" -ForegroundColor Blue
     try {
+        # Prepare web request parameters for binary download
         $WebRequestParams = @{
             Uri = "$($endpoint)/files/remote-agent.exe"
             Method = 'Get'
             Certificate = $cert
         }
+        
+        Write-Host "Using standard SSL certificate validation for binary download" -ForegroundColor Green
+        
         Invoke-WebRequest @WebRequestParams -OutFile "remote-agent.exe" -ErrorAction Stop
         Write-Host "Successfully downloaded remote-agent.exe" -ForegroundColor Green
+        
     } catch {
         Write-Host "Error: Failed to download." -ForegroundColor Red
         Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+        
         exit 1
     }
     $agent_path = Resolve-Path ".\remote-agent.exe"
@@ -289,7 +338,7 @@ if ($protocol -eq 'mqtt') {
 }
 
 $binPath = "`"$agent_path`" $processArgs"
-$serviceName = "symphony-service"
+$serviceName = "Symphony-RemoteAgent-$target_name"
 Write-Host "Remote agent command line: $binPath" -ForegroundColor Cyan
 # Setup as service or scheduled task
 if ($run_mode -eq 'service') {
