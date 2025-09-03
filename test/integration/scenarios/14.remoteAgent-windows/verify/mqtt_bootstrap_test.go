@@ -5,6 +5,8 @@ package verify
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -258,4 +260,276 @@ func (suite *WindowsMQTTBootstrapTestSuite) TestWindowsMQTTEnvironmentCheck() {
 	require.NotEmpty(suite.T(), suite.testConfig.BrokerAddress, "Broker address should be set")
 
 	suite.T().Logf("Windows MQTT environment check completed successfully")
+}
+
+// TestE2EMQTTCommunicationWithBootstrap - Windows equivalent of Linux TestE2EMQTTCommunicationWithProcess
+func TestE2EMQTTCommunicationWithBootstrap(t *testing.T) {
+	// Test configuration
+	targetName := "test-windows-mqtt-bootstrap-target"
+	namespace := "default"
+	mqttBrokerPort := 8883
+
+	t.Logf("=== Starting Windows E2E MQTT Communication Test with Bootstrap ===")
+	t.Logf("Target: %s, Namespace: %s, MQTT Port: %d", targetName, namespace, mqttBrokerPort)
+
+	// Setup test environment
+	testDir := utils.CreateWindowsTestDirectory(t)
+	projectRoot := utils.GetWindowsProjectRoot(t)
+	t.Logf("Running Windows MQTT bootstrap test in: %s", testDir)
+	t.Logf("Project root: %s", projectRoot)
+
+	// Test phases similar to Linux TestE2EMQTTCommunicationWithProcess but adapted for Windows
+	t.Run("Phase1_EnvironmentVerification", func(t *testing.T) {
+		// Verify Windows environment and required tools
+		t.Logf("=== Phase 1: Windows Environment Verification ===")
+
+		// Check if running on Windows
+		if !utils.IsRunningOnWindows() {
+			t.Skip("Skipping Windows-specific MQTT test on non-Windows platform")
+		}
+
+		// Verify minikube and kubectl are available
+		utils.VerifyMinikubeInstallationWindows(t)
+		utils.VerifyKubectlInstallationWindows(t)
+
+		t.Logf("✅ Phase 1 completed: Windows environment verified")
+	})
+
+	// Variables to be used across test phases
+	var config utils.WindowsTestConfig
+	var detectedBrokerAddress string
+	var caSecretName string
+	var processCmd *exec.Cmd
+
+	t.Run("Phase2_SymphonyConnection", func(t *testing.T) {
+		t.Logf("=== Phase 2: Symphony Server Connection ===")
+
+		// Start fresh minikube cluster
+		utils.StartFreshMinikubeWindows(t)
+
+		// Setup MQTT process namespace
+		utils.SetupWindowsMQTTProcessNamespace(t, namespace)
+
+		// Setup MQTT process test with detected broker address (Windows version)
+		config, detectedBrokerAddress, caSecretName = utils.SetupWindowsMQTTProcessTestWithDetectedAddress(t, testDir, targetName, namespace)
+		t.Logf("Windows MQTT process test setup completed with broker address: %s", detectedBrokerAddress)
+
+		// Debug certificate information
+		utils.DebugWindowsCertificateInfo(t, config.CACertPath, "CA Certificate")
+		utils.DebugWindowsCertificateInfo(t, config.ClientCertPath, "Client Certificate")
+
+		// Test TLS connection to MQTT broker with certificates
+		utils.DebugWindowsTLSConnection(t, detectedBrokerAddress, 8883, config.CACertPath, config.ClientCertPath, config.ClientKeyPath)
+
+		// Create CA secret in default namespace for Symphony MQTT client certificate validation
+		t.Logf("Creating CA secret in default namespace for Symphony MQTT client...")
+		utils.CreateWindowsMQTTCASecretInNamespace(t, namespace, config.CACertPath)
+
+		t.Logf("✅ Phase 2 completed: Symphony connection established")
+	})
+
+	t.Run("Phase3_TestConfigurations", func(t *testing.T) {
+		t.Logf("=== Phase 3: Test Configurations Setup ===")
+
+		// Deploy Symphony with MQTT configuration using detected broker address
+		symphonyBrokerAddress := fmt.Sprintf("tls://%s:%d", detectedBrokerAddress, mqttBrokerPort)
+		t.Logf("Starting Symphony with MQTT broker address: %s", symphonyBrokerAddress)
+		utils.StartSymphonyWithMQTTConfigDetectedWindows(t, symphonyBrokerAddress, caSecretName)
+
+		// Wait for Symphony server certificate to be created
+		utils.WaitForSymphonyServerCertWindows(t, 5*time.Minute)
+
+		// Create Target YAML
+		targetYamlPath := utils.CreateTargetYAMLWindows(t, testDir, targetName, namespace)
+		t.Logf("Target YAML path: %s", targetYamlPath)
+
+		// Apply Target YAML to create the target resource
+		err := utils.ApplyKubernetesManifestWindows(t, targetYamlPath)
+		require.NoError(t, err)
+
+		// Wait for target to be created
+		utils.WaitForTargetCreatedWindows(t, targetName, namespace, 30*time.Second)
+
+		t.Logf("✅ Phase 3 completed: Test configurations ready")
+	})
+
+	t.Run("Phase4_BootstrapExecution", func(t *testing.T) {
+		t.Logf("=== Phase 4: Bootstrap Script Execution ===")
+
+		// Build Windows remote agent binary first (required for MQTT mode)
+		binaryPath := utils.BuildWindowsRemoteAgent(t, config)
+		config.BinaryPath = binaryPath
+
+		// Start Windows remote agent using bootstrap.ps1 with Windows service mode
+		config.RunMode = "service"
+		serviceName := fmt.Sprintf("Symphony-RemoteAgent-%s", targetName)
+
+		// Execute bootstrap.ps1 to setup the Windows service
+		processCmd = utils.StartWindowsRemoteAgentWithBootstrap(t, config)
+		require.NotNil(t, processCmd, "Bootstrap command should not be nil")
+
+		// Give bootstrap.ps1 time to complete and start the service
+		time.Sleep(45 * time.Second)
+
+		// Wait for Windows service to be ready
+		utils.WaitForWindowsService(t, serviceName, 2*time.Minute)
+
+		// Verify service status
+		utils.CheckWindowsServiceStatus(t, serviceName)
+
+		// Set up cleanup for the service
+		t.Cleanup(func() {
+			t.Logf("=== CLEANUP: Windows Service ===")
+			utils.CleanupWindowsService(t, serviceName)
+		})
+
+		t.Logf("✅ Phase 4 completed: Bootstrap execution successful")
+	})
+
+	t.Run("Phase5_TargetStatusVerification", func(t *testing.T) {
+		t.Logf("=== Phase 5: Target Status Verification ===")
+
+		// Debug MQTT connection before verifying target status
+		t.Logf("=== DEBUGGING MQTT CONNECTION BEFORE TARGET VERIFICATION ===")
+		utils.DebugWindowsTLSConnection(t, detectedBrokerAddress, mqttBrokerPort, config.CACertPath, config.ClientCertPath, config.ClientKeyPath)
+
+		// Wait for target to reach ready state
+		utils.WaitForTargetReadyWindows(t, targetName, namespace, 360*time.Second)
+
+		t.Logf("✅ Phase 5 completed: Target status verified")
+	})
+
+	t.Run("Phase6_TopologyUpdateVerification", func(t *testing.T) {
+		t.Logf("=== Phase 6: Topology Update Verification ===")
+
+		// Verify that topology was successfully updated
+		// This checks that the remote agent successfully called
+		// the topology update endpoint via MQTT
+		utils.VerifyTargetTopologyUpdateWindows(t, targetName, namespace, "Windows MQTT bootstrap")
+
+		t.Logf("✅ Phase 6 completed: Topology update verified")
+	})
+
+	t.Run("Phase7_DataInteractionTesting", func(t *testing.T) {
+		t.Logf("=== Phase 7: Data Interaction Testing ===")
+
+		// Verify that data flows through MQTT correctly
+		// This checks that the remote agent successfully communicates
+		// with Symphony through the MQTT broker
+		testWindowsMQTTBootstrapDataInteraction(t, targetName, namespace, testDir)
+
+		t.Logf("✅ Phase 7 completed: Data interaction tested")
+	})
+
+	// Infrastructure cleanup
+	t.Cleanup(func() {
+		t.Logf("=== CLEANUP: Infrastructure ===")
+		utils.CleanupSymphonyWindows(t)
+		utils.CleanupMinikubeWindows(t)
+	})
+
+	t.Logf("=== Windows E2E MQTT Communication Test with Bootstrap Completed Successfully ===")
+}
+
+// testWindowsMQTTBootstrapDataInteraction - Windows equivalent of Linux testMQTTProcessDataInteraction
+func testWindowsMQTTBootstrapDataInteraction(t *testing.T, targetName, namespace, testDir string) {
+	// Step 1: Create a simple Solution first
+	solutionName := "test-windows-mqtt-bootstrap-solution"
+	solutionVersion := "test-windows-mqtt-bootstrap-solution-v-version1"
+	solutionYaml := fmt.Sprintf(`
+apiVersion: solution.symphony/v1
+kind: SolutionContainer
+metadata:
+  name: %s
+  namespace: %s
+spec:
+---
+apiVersion: solution.symphony/v1
+kind: Solution
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  rootResource: %s
+  components:
+  - name: test-windows-component
+    type: script
+    properties:
+      script: |
+        echo "Windows MQTT Bootstrap test component deployed successfully"
+        echo "Target: %s"
+        echo "Namespace: %s"
+        echo "Platform: Windows"
+`, solutionName, namespace, solutionVersion, namespace, solutionName, targetName, namespace)
+
+	solutionPath := filepath.Join(testDir, "solution.yaml")
+	err := utils.CreateYAMLFileWindows(t, solutionPath, solutionYaml)
+	require.NoError(t, err)
+
+	// Apply the solution
+	t.Logf("Creating Solution %s...", solutionName)
+	err = utils.ApplyKubernetesManifestWindows(t, solutionPath)
+	require.NoError(t, err)
+
+	// Step 2: Create an Instance that references the Solution and Target
+	instanceName := "test-windows-mqtt-bootstrap-instance"
+	instanceYaml := fmt.Sprintf(`
+apiVersion: solution.symphony/v1
+kind: Instance
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  displayName: %s
+  solution: %s:version1
+  target:
+    name: %s
+  scope: %s-scope
+`, instanceName, namespace, instanceName, solutionName, targetName, namespace)
+
+	instancePath := filepath.Join(testDir, "instance.yaml")
+	err = utils.CreateYAMLFileWindows(t, instancePath, instanceYaml)
+	require.NoError(t, err)
+
+	// Apply the instance
+	t.Logf("Creating Instance %s that references Solution %s and Target %s...", instanceName, solutionName, targetName)
+	err = utils.ApplyKubernetesManifestWindows(t, instancePath)
+	require.NoError(t, err)
+
+	// Wait for Instance deployment to complete or reach a stable state
+	t.Logf("Waiting for Instance %s to complete deployment...", instanceName)
+	utils.WaitForInstanceReadyWindows(t, instanceName, namespace, 5*time.Minute)
+
+	t.Cleanup(func() {
+		// Delete in correct order: Instance -> Solution -> Target
+		t.Logf("Deleting Instance first...")
+		err := utils.DeleteKubernetesResourceWindows(t, "instances.solution.symphony", instanceName, namespace, 2*time.Minute)
+		if err != nil {
+			t.Logf("Warning: Failed to delete instance: %v", err)
+		} else {
+			utils.WaitForResourceDeletedWindows(t, "instance", instanceName, namespace, 1*time.Minute)
+		}
+
+		t.Logf("Deleting Solution...")
+		err = utils.DeleteSolutionManifestWithTimeoutWindows(t, solutionPath, 2*time.Minute)
+		if err != nil {
+			t.Logf("Warning: Failed to delete solution: %v", err)
+		} else {
+			utils.WaitForResourceDeletedWindows(t, "solution", solutionVersion, namespace, 1*time.Minute)
+		}
+
+		t.Logf("Deleting Target...")
+		err = utils.DeleteKubernetesResourceWindows(t, "targets.fabric.symphony", targetName, namespace, 2*time.Minute)
+		if err != nil {
+			t.Logf("Warning: Failed to delete target: %v", err)
+		}
+
+		t.Logf("Windows MQTT Bootstrap data interaction cleanup completed")
+	})
+
+	// Give a short additional wait to ensure stability
+	t.Logf("Instance deployment phase completed, test continuing...")
+	time.Sleep(2 * time.Second)
+
+	t.Logf("Windows MQTT Bootstrap data interaction test completed - Solution and Instance created successfully")
 }
