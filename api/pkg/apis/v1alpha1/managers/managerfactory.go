@@ -33,6 +33,7 @@ import (
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/targets"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/trails"
 	"github.com/eclipse-symphony/symphony/api/pkg/apis/v1alpha1/managers/users"
+	cm "github.com/eclipse-symphony/symphony/coa/pkg/apis/v1alpha2/managers"
 )
 
 type SymphonyManagerFactory struct {
