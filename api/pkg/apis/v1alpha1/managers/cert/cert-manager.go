@@ -188,7 +188,25 @@ func (c *CertManager) CreateWorkingCert(ctx context.Context, targetName, namespa
 func (c *CertManager) DeleteWorkingCert(ctx context.Context, targetName, namespace string) error {
 	cLog.InfofCtx(ctx, "Deleting working cert for target %s in namespace %s", targetName, namespace)
 
-	// Delete the certificate
+	getRequest := states.GetRequest{
+		ID: targetName,
+		Metadata: map[string]interface{}{
+			"namespace": namespace,
+			"group":     "cert-manager.io",
+			"version":   "v1",
+			"resource":  "certificates",
+			"kind":      "Certificate",
+		},
+	}
+
+	// first check if exists
+	_, err := c.StateProvider.Get(ctx, getRequest)
+	if err != nil {
+		cLog.ErrorfCtx(ctx, "Working cert %s not found, cannot delete: %s", targetName, err.Error())
+		return err
+	}
+
+	// if found,  then  delete
 	deleteRequest := states.DeleteRequest{
 		ID: targetName,
 		Metadata: map[string]interface{}{
@@ -200,14 +218,24 @@ func (c *CertManager) DeleteWorkingCert(ctx context.Context, targetName, namespa
 		},
 	}
 
-	err := c.StateProvider.Delete(ctx, deleteRequest)
+	err = c.StateProvider.Delete(ctx, deleteRequest)
 	if err != nil && !v1alpha2.IsNotFound(err) {
 		cLog.ErrorfCtx(ctx, "Failed to delete certificate: %s", err.Error())
 		return err
 	}
 
-	cLog.InfofCtx(ctx, "Successfully deleted working cert for target %s", targetName)
-	return nil
+	// double check deletion
+	_, err = c.StateProvider.Get(ctx, getRequest)
+	if v1alpha2.IsNotFound(err) {
+		cLog.InfofCtx(ctx, "Successfully deleted working cert for target %s", targetName)
+		return nil
+	}
+
+	cLog.ErrorfCtx(ctx, "Certificate %s still exists after delete", targetName)
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("certificate %s still exists after delete", targetName)
 }
 
 // GetWorkingCert retrieves the working certificate for the specified target (read-only)
