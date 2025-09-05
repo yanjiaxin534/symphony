@@ -502,10 +502,12 @@ func (s *SolutionManager) handleAllPlanCompletetion(ctx context.Context, summary
 					"resource":  DeploymentState,
 				},
 			})
-			if err != nil && summary.PlanState.Deployment.RemoteTargetName != "" {
+			if err != nil {
+				log.ErrorCtx(ctx, " M (Solution): failed to delete state for deployment %+v: %s", summary.PlanState.Deployment, err.Error())
+			}
+			// Only cleanup remote target resources after successful deletion
+			if err == nil && summary.PlanState.Deployment.RemoteTargetName != "" {
 				s.cleanupRemoteTargetResourcesAfterDeletion(ctx, summary.PlanState.Deployment.RemoteTargetName, summary.PlanState.Namespace)
-			} else {
-				log.ErrorCtx(ctx, " M (Solution): failed to delete state for deployment %s: %s", summary.PlanState.Deployment.Instance.ObjectMeta.Name, err.Error())
 			}
 		} else {
 			s.StateProvider.Upsert(ctx, states.UpsertRequest{
