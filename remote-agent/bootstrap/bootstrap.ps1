@@ -25,8 +25,78 @@ param (
     [Parameter(Mandatory=$false)]
     [bool]$use_cert_subject = $false,
     [Parameter(Mandatory=$false)]
-    [string]$cert_password
+    [string]$cert_password,
+    [Parameter(Mandatory=$false)]
+    [string]$agent_path
 )
+
+# Function to resolve Windows paths, handling short names and temp directories
+function Resolve-WindowsPath {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Path,
+        [Parameter(Mandatory=$false)]
+        [string]$Description = "file"
+    )
+    
+    try {
+        # Method 1: Direct Test-Path check
+        if (Test-Path $Path) {
+            return (Get-Item $Path).FullName
+        }
+        
+        # Method 2: Try to resolve short path names using Get-ChildItem with wildcards
+        # This handles cases where Windows temp directories use ~1 notation
+        $parentDir = Split-Path $Path -Parent
+        $fileName = Split-Path $Path -Leaf
+        
+        if ($parentDir -and (Test-Path $parentDir)) {
+            # Look for files matching the pattern in the parent directory
+            $matchingFiles = Get-ChildItem -Path $parentDir -Filter $fileName -ErrorAction SilentlyContinue
+            if ($matchingFiles -and $matchingFiles.Count -eq 1) {
+                return $matchingFiles[0].FullName
+            }
+            
+            # If no exact match, try partial matching for temp directories with random suffixes
+            $baseFileName = $fileName -replace '-\d+$', ''  # Remove trailing numbers
+            if ($baseFileName -ne $fileName) {
+                $matchingFiles = Get-ChildItem -Path $parentDir -Filter "*$baseFileName*" -ErrorAction SilentlyContinue
+                if ($matchingFiles -and $matchingFiles.Count -eq 1) {
+                    return $matchingFiles[0].FullName
+                }
+            }
+        }
+        
+        # Method 3: Try expanding short path components
+        if ($Path -match '~\d') {
+            try {
+                # Use .NET method to expand short names
+                $expandedPath = [System.IO.Path]::GetFullPath($Path)
+                if (Test-Path $expandedPath) {
+                    return (Get-Item $expandedPath).FullName
+                }
+            } catch {
+                # Ignore expansion errors and continue
+            }
+        }
+        
+        # Method 4: For relative paths, try resolving from current directory
+        if (-not [System.IO.Path]::IsPathRooted($Path)) {
+            $absolutePath = Join-Path (Get-Location) $Path
+            if (Test-Path $absolutePath) {
+                return (Get-Item $absolutePath).FullName
+            }
+        }
+        
+        # If all methods fail, return null to indicate path not found
+        return $null
+        
+    } catch {
+        Write-Host "Warning: Error resolving path '$Path': $($_.Exception.Message)" -ForegroundColor Yellow
+        return $null
+    }
+}
+
 function usage {
     Write-Host "Usage for HTTP mode:" -ForegroundColor Yellow
     Write-Host ".\bootstrap.ps1 -protocol http -endpoint <endpoint> -cert_path <cert_path> -target_name <target_name> -namespace <namespace> -topology <topology> -run_mode <service|schedule>" -ForegroundColor Yellow
@@ -79,21 +149,25 @@ if ($protocol -eq "http") {
         usage
     }
     
-    # For MQTT mode, validate certificate and key files
-    if (-not (Test-Path $cert_path)) {
+    # For MQTT mode, validate certificate and key files using enhanced path resolution
+    $resolvedCertPath = Resolve-WindowsPath -Path $cert_path -Description "client certificate"
+    if (-not $resolvedCertPath) {
         Write-Host "Error: Certificate file not found at path: $cert_path" -ForegroundColor Red
         usage
     }
+    $cert_path = $resolvedCertPath
     
     if (-not $key_path) {
         Write-Host "Error: Key path must be provided for MQTT mode" -ForegroundColor Red
         usage
     }
     
-    if (-not (Test-Path $key_path)) {
+    $resolvedKeyPath = Resolve-WindowsPath -Path $key_path -Description "client key"
+    if (-not $resolvedKeyPath) {
         Write-Host "Error: Key file not found at path: $key_path" -ForegroundColor Red
         usage
     }
+    $key_path = $resolvedKeyPath
 } else {
     Write-Host "Error: Protocol must be either 'http' or 'mqtt'." -ForegroundColor Red
     usage
@@ -111,14 +185,16 @@ if ([string]::IsNullOrEmpty($namespace)) {
     Write-Host "Using default namespace: $namespace" -ForegroundColor Yellow
 }
 
-# Validate the topology file (non-empty string)
-if (-not (Test-Path $topology)) {
+# Validate the topology file using enhanced path resolution
+$resolvedTopologyPath = Resolve-WindowsPath -Path $topology -Description "topology"
+if (-not $resolvedTopologyPath) {
     Write-Host "Error: Topology file not found at path: $topology" -ForegroundColor Red
     usage
-} elseif ($topology -notlike "*.json") {
+} elseif ($resolvedTopologyPath -notlike "*.json") {
     Write-Host "Error: The topology file must be a .json file." -ForegroundColor Red
     usage
-}    
+}
+$topology = $resolvedTopologyPath
 
 Import-Module PKI
 
@@ -148,8 +224,13 @@ if ($protocol -eq 'http' -and $ca_cert_path -and (Test-Path $ca_cert_path)) {
         exit 1
     }
 } elseif ($ca_cert_path) {
-    Write-Host "Error: CA certificate file not found at path: $ca_cert_path" -ForegroundColor Red
-    exit 1
+    # Use enhanced path resolution for CA certificate validation
+    $resolvedCaPath = Resolve-WindowsPath -Path $ca_cert_path -Description "CA certificate"
+    if (-not $resolvedCaPath) {
+        Write-Host "Error: CA certificate file not found at path: $ca_cert_path" -ForegroundColor Red
+        exit 1
+    }
+    $ca_cert_path = $resolvedCaPath
 }
 
 # Create the JSON configuration based on protocol
@@ -284,10 +365,15 @@ if ($protocol -eq 'http') {
     $private_path = Resolve-Path ".\private.pem"
     
 } else {
-    # MQTT mode: Prompt for binary
-    $agent_path = Read-Host "Please input the full absolute path to your remote-agent.exe binary (e.g. C:\path\to\remote-agent.exe)"
-    $agent_path = $agent_path.Trim('"')
-    if (-not (Test-Path $agent_path)) {
+    # MQTT mode: Use provided agent_path or prompt for binary
+    if (-not $agent_path) {
+        $agent_path = Read-Host "Please input the full absolute path to your remote-agent.exe binary (e.g. C:\path\to\remote-agent.exe)"
+        if ($agent_path) {
+            $agent_path = $agent_path.Trim('"')
+        }
+    }
+    
+    if (-not $agent_path -or -not (Test-Path $agent_path)) {
         Write-Host "Error: remote-agent.exe not found at $agent_path" -ForegroundColor Red
         exit 1
     }
@@ -304,14 +390,22 @@ if ($protocol -eq 'http') {
                 exit 1
             }
         }
-    } elseif (-not (Test-Path $ca_cert_path)) {
-        Write-Host "Error: CA certificate file not found at $ca_cert_path" -ForegroundColor Red
-        exit 1
+    } else {
+        # CA certificate path was provided as parameter, validate and resolve it
+        Write-Host "Validating CA certificate path: $ca_cert_path" -ForegroundColor Blue
+        $resolvedCaPath = Resolve-WindowsPath -Path $ca_cert_path -Description "CA certificate"
+        if ($resolvedCaPath) {
+            $ca_cert_path = $resolvedCaPath
+            Write-Host "Successfully resolved CA certificate path: $ca_cert_path" -ForegroundColor Green
+        } else {
+            Write-Host "Error: CA certificate file not found at path: $ca_cert_path" -ForegroundColor Red
+            Write-Host "Please verify that the certificate file exists and the path is correct." -ForegroundColor Red
+            exit 1
+        }
     }
     
     Write-Host "Using user-supplied remote-agent binary: $agent_path" -ForegroundColor Green
     if ($ca_cert_path) {
-        $ca_cert_path = (Get-Item $ca_cert_path).FullName
         Write-Host "Using CA certificate: $ca_cert_path" -ForegroundColor Green
     }
     
@@ -330,13 +424,24 @@ $processArgs = "-config=`"$config`" -client-cert=`"$public_path`" -client-key=`"
 # Add MQTT-specific parameters
 if ($protocol -eq 'mqtt') {
     if ($ca_cert_path) {
+        Write-Output "  CA Certificate Path: $ca_cert_path"
+        # Apply Windows path resolution for CA certificate path
+        $resolved_ca_cert_path = Resolve-WindowsPath -Path $ca_cert_path
+        if (!(Test-Path -Path $resolved_ca_cert_path)) {
+            Write-Error "CA certificate file not found at path: $resolved_ca_cert_path (original: $ca_cert_path)"
+            exit 1
+        }
+        # Update the CA certificate path to the resolved path
+        $ca_cert_path = $resolved_ca_cert_path
+        Write-Output "  Resolved CA Certificate Path: $ca_cert_path"
+        
+        # Add CA certificate to process arguments
         $processArgs += " -ca-cert=`"$ca_cert_path`""
     }
     if ($use_cert_subject) {
         $processArgs += " -use-cert-subject"
     }
 }
-
 $binPath = "`"$agent_path`" $processArgs"
 $serviceName = "Symphony-RemoteAgent-$target_name"
 Write-Host "Remote agent command line: $binPath" -ForegroundColor Cyan

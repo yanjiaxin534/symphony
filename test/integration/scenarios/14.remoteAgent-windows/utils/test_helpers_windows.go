@@ -1565,6 +1565,8 @@ func DeleteSolutionManifestWithTimeoutWindows(t *testing.T, manifestPath string,
 
 	// Parse YAML to extract solution and solutioncontainer names
 	solutionName, solutionContainerName, namespace, err := parseWindowsSolutionYAML(string(yamlContent))
+	t.Logf("Parsed solution YAML - Solution: %s, SolutionContainer: %s, Namespace: %s",
+		solutionName, solutionContainerName, namespace)
 	if err != nil {
 		t.Logf("Failed to parse solution YAML: %v", err)
 		return err
@@ -1617,38 +1619,47 @@ func parseWindowsSolutionYAML(yamlContent string) (solutionName, solutionContain
 			continue
 		}
 
-		// Simple parsing for kind and metadata
 		lines := strings.Split(doc, "\n")
 		var kind, name, ns string
 		var inMetadata bool
 
 		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
+			trimmedLine := strings.TrimSpace(line)
+			if trimmedLine == "" || strings.HasPrefix(trimmedLine, "#") {
 				continue
 			}
 
 			// Parse kind
-			if strings.HasPrefix(line, "kind:") {
-				kind = strings.TrimSpace(strings.TrimPrefix(line, "kind:"))
+			if strings.HasPrefix(trimmedLine, "kind:") {
+				kind = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "kind:"))
+				continue
 			}
 
 			// Track metadata section
-			if line == "metadata:" {
+			if trimmedLine == "metadata:" {
 				inMetadata = true
 				continue
 			}
-			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-				inMetadata = false
+
+			// Check if we're still in metadata section by indentation
+			if inMetadata {
+				// If line doesn't start with space/tab and is not a continuation, we're out of metadata
+				if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+					inMetadata = false
+				}
 			}
 
 			// Parse name and namespace in metadata section
 			if inMetadata {
-				if strings.HasPrefix(line, "name:") {
-					name = strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+				if strings.HasPrefix(trimmedLine, "name:") {
+					name = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "name:"))
+					// Remove quotes if present
+					name = strings.Trim(name, "\"'")
 				}
-				if strings.HasPrefix(line, "namespace:") {
-					ns = strings.TrimSpace(strings.TrimPrefix(line, "namespace:"))
+				if strings.HasPrefix(trimmedLine, "namespace:") {
+					ns = strings.TrimSpace(strings.TrimPrefix(trimmedLine, "namespace:"))
+					// Remove quotes if present
+					ns = strings.Trim(ns, "\"'")
 				}
 			}
 		}
