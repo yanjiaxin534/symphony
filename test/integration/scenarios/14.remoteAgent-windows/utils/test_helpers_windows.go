@@ -1019,55 +1019,26 @@ func CreateWindowsTestDirectory(t *testing.T) string {
 }
 
 // StartWindowsRemoteAgentWithBootstrap starts remote agent using bootstrap.ps1 script
-func StartWindowsRemoteAgentWithBootstrap(t *testing.T, config WindowsTestConfig) *exec.Cmd {
-	// Build the binary first for MQTT mode
-	if config.Protocol == "mqtt" && config.BinaryPath == "" {
-		binaryPath := BuildWindowsRemoteAgent(t, config)
-		config.BinaryPath = binaryPath
-	}
-
+func StartWindowsHTTPRemoteAgent(t *testing.T, config WindowsTestConfig) *exec.Cmd {
 	// Prepare bootstrap.ps1 arguments
 	var args []string
 
-	if config.Protocol == "http" {
-		// HTTP mode arguments
-		args = []string{
-			"-protocol", "http",
-			"-endpoint", config.BaseURL,
-			"-cert_path", config.ClientCertPath,
-			"-target_name", config.TargetName,
-			"-namespace", config.Namespace,
-			"-topology", config.TopologyPath,
-			"-run_mode", config.RunMode,
-			"-cert_password", config.CertPassword,
-		}
-
-		// Add CA certificate if available
-		if config.CACertPath != "" {
-			args = append(args, "-ca_cert_path", config.CACertPath)
-		}
-	} else if config.Protocol == "mqtt" {
-		// MQTT mode arguments
-		args = []string{
-			"-protocol", "mqtt",
-			"-mqtt_broker", config.BrokerAddress,
-			"-mqtt_port", config.BrokerPort,
-			"-cert_path", config.ClientCertPath,
-			"-key_path", config.ClientKeyPath,
-			"-target_name", config.TargetName,
-			"-namespace", config.Namespace,
-			"-topology", config.TopologyPath,
-			"-run_mode", config.RunMode,
-			"-agent_path", config.BinaryPath,
-		}
-
-		if config.CACertPath != "" {
-			args = append(args, "-ca_cert_path", config.CACertPath)
-		}
-	} else {
-		t.Fatalf("Unsupported protocol: %s", config.Protocol)
+	// HTTP mode arguments
+	args = []string{
+		"-protocol", "http",
+		"-endpoint", config.BaseURL,
+		"-cert_path", config.ClientCertPath,
+		"-target_name", config.TargetName,
+		"-namespace", config.Namespace,
+		"-topology", config.TopologyPath,
+		"-run_mode", config.RunMode,
+		"-cert_password", config.CertPassword,
 	}
 
+	// Add CA certificate if available
+	if config.CACertPath != "" {
+		args = append(args, "-ca_cert_path", config.CACertPath)
+	}
 	// Get bootstrap.ps1 path
 	bootstrapPath := filepath.Join(config.ProjectRoot, "remote-agent", "bootstrap", "bootstrap.ps1")
 
@@ -1100,7 +1071,7 @@ func StartWindowsRemoteAgentWithBootstrap(t *testing.T, config WindowsTestConfig
 		}
 	}()
 
-	t.Logf("Bootstrap.ps1 started, Windows service should be created")
+	t.Logf("Bootstrap.ps1 started, Windows service %s should be created", config.RunMode)
 	return cmd
 }
 
@@ -1167,6 +1138,56 @@ func CleanupWindowsService(t *testing.T, serviceName string) {
 	}
 
 	t.Logf("Windows service %s cleanup completed", serviceName)
+}
+
+// CheckWindowsScheduledTaskStatus checks the status of a Windows scheduled task
+func CheckWindowsScheduledTaskStatus(t *testing.T, taskName string) {
+	t.Logf("Checking Windows scheduled task status: %s", taskName)
+
+	cmd := exec.Command("powershell", "-Command",
+		fmt.Sprintf("Get-ScheduledTask -TaskName '%s' -ErrorAction SilentlyContinue | Select-Object TaskName, State", taskName))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Logf("Scheduled task %s status check failed: %v", taskName, err)
+	} else {
+		t.Logf("Scheduled task %s status: %s", taskName, string(output))
+	}
+}
+
+// WaitForWindowsScheduledTask waits for a Windows scheduled task to be ready or running
+func WaitForWindowsScheduledTask(t *testing.T, taskName string, timeout time.Duration) {
+	t.Logf("Waiting for Windows scheduled task %s to be ready...", taskName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Logf("Timeout waiting for Windows scheduled task %s to be ready", taskName)
+			CheckWindowsScheduledTaskStatus(t, taskName)
+			t.Fatalf("Timeout waiting for Windows scheduled task %s to be ready after %v", taskName, timeout)
+		case <-ticker.C:
+			// Use a more robust PowerShell command that suppresses warnings and filters output
+			cmd := exec.Command("powershell", "-Command",
+				fmt.Sprintf("$WarningPreference = 'SilentlyContinue'; $ErrorActionPreference = 'SilentlyContinue'; (Get-ScheduledTask -TaskName '%s' 2>$null).State", taskName))
+			output, err := cmd.Output()
+			if err == nil {
+				state := strings.TrimSpace(string(output))
+				t.Logf("Scheduled task %s current state: '%s'", taskName, state)
+				// Check if state contains "Ready" or "Running" (case-insensitive)
+				if strings.Contains(strings.ToLower(state), "ready") || strings.Contains(strings.ToLower(state), "running") {
+					t.Logf("Windows scheduled task %s is ready/running", taskName)
+					return
+				}
+			} else {
+				t.Logf("Failed to query scheduled task %s: %v", taskName, err)
+			}
+		}
+	}
 }
 
 // CleanupWindowsScheduledTask cleans up a Windows scheduled task

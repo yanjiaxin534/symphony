@@ -14,17 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestE2EHttpCommunicationWithBootstrap implements the complete Windows E2E HTTP communication test
+// TestE2EHttpCommunicationWithSchedule implements the complete Windows E2E HTTP communication test
 // This test mirrors the Linux version but uses Windows-specific implementations
-func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
+func TestE2EHttpCommunicationWithSchedule(t *testing.T) {
 	// Test configuration - use relative path from test directory
 	projectRoot := utils.GetWindowsProjectRoot(t) // Get project root dynamically
-	targetName := "test-http-bootstrap-target-windows"
+	targetName := "test-http-schedule-target-windows"
 	namespace := "default"
 
 	// Setup test environment
 	testDir := utils.CreateWindowsTestDirectory(t)
-	t.Logf("Running Windows HTTP bootstrap test in: %s", testDir)
+	t.Logf("Running Windows HTTP schedule test in: %s", testDir)
 
 	// Step 1: Start fresh minikube cluster
 	t.Run("SetupFreshMinikubeCluster", func(t *testing.T) {
@@ -42,6 +42,7 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 	var caSecretName, clientSecretName string
 	var configPath, topologyPath, targetYamlPath string
 	var symphonyCAPath, baseURL string
+	var config utils.WindowsTestConfig
 
 	// Suppress unused variable warnings for now
 	_ = caSecretName
@@ -94,15 +95,15 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 		utils.WaitForTargetCreatedWindows(t, targetName, namespace, 30*time.Second)
 	})
 
-	// Step 4: Start Remote Agent with Bootstrap
-	t.Run("StartRemoteAgentWithBootstrap", func(t *testing.T) {
+	// Step 4: Start Remote Agent with schedule
+	t.Run("StartRemoteAgentWithschedule", func(t *testing.T) {
 		// Clean up any existing remote-agent service first to avoid conflicts
 		t.Logf("Cleaning up any existing Windows remote-agent service...")
 		serviceName := fmt.Sprintf("Symphony-RemoteAgent-%s", targetName)
 		utils.CleanupWindowsService(t, serviceName)
 
-		// Create configuration for bootstrap.ps1
-		config := utils.WindowsTestConfig{
+		// Create configuration for schedule.ps1
+		config = utils.WindowsTestConfig{
 			ProjectRoot:    projectRoot,
 			ConfigPath:     configPath,
 			ClientCertPath: certs.ClientCert,
@@ -114,39 +115,59 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 			TopologyPath:   topologyPath,
 			Protocol:       "http",
 			BaseURL:        baseURL,
-			RunMode:        "service", // Use Windows service mode
+			RunMode:        "schedule", // Use Windows service mode
 		}
 
-		// Start remote agent using bootstrap.ps1
-		bootstrapCmd := utils.StartWindowsHTTPRemoteAgent(t, config)
-		require.NotNil(t, bootstrapCmd)
+		// Start remote agent using schedule.ps1
+		scheduleCmd := utils.StartWindowsHTTPRemoteAgent(t, config)
+		require.NotNil(t, scheduleCmd)
 
-		// Wait for bootstrap.ps1 to complete - increased timeout for Windows
-		t.Logf("Waiting for bootstrap.ps1 to complete...")
+		// Wait for schedule.ps1 to complete - increased timeout for Windows
+		t.Logf("Waiting for schedule.ps1 to complete...")
 		time.Sleep(45 * time.Second)
 
-		// Check if bootstrap.ps1 process is still running
-		if bootstrapCmd.ProcessState == nil {
-			t.Logf("Bootstrap.ps1 is still running, waiting a bit more...")
+		// Check if schedule.ps1 process is still running
+		if scheduleCmd.ProcessState == nil {
+			t.Logf("schedule.ps1 is still running, waiting a bit more...")
 			time.Sleep(20 * time.Second)
 		}
 
-		// Check service status - Windows service management
-		utils.CheckWindowsServiceStatus(t, serviceName)
+		// Check service or scheduled task status based on run mode
+		if config.RunMode == "schedule" {
+			// For schedule mode, check scheduled task instead of service
+			taskName := "RemoteAgentTask"
+			t.Logf("Checking Windows scheduled task status for schedule mode...")
+			utils.CheckWindowsScheduledTaskStatus(t, taskName)
 
-		// Try to wait for service to be active, but don't fail if it's not
-		// since bootstrap.ps1 already confirmed it started
-		t.Logf("Attempting to verify Windows service is active...")
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("Windows service check failed, but bootstrap.ps1 succeeded: %v", r)
-				}
+			// Try to wait for task to be ready, but don't fail if it's not
+			// since bootstrap.ps1 already confirmed it started
+			t.Logf("Attempting to verify Windows scheduled task is ready...")
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Logf("Windows scheduled task check failed, but bootstrap.ps1 succeeded: %v", r)
+					}
+				}()
+				utils.WaitForWindowsScheduledTask(t, taskName, 30*time.Second)
 			}()
-			utils.WaitForWindowsService(t, serviceName, 30*time.Second)
-		}()
+		} else {
+			// For service mode, use original service checking logic
+			utils.CheckWindowsServiceStatus(t, serviceName)
 
-		// Give some time for the service check, but continue regardless
+			// Try to wait for service to be active, but don't fail if it's not
+			// since bootstrap.ps1 already confirmed it started
+			t.Logf("Attempting to verify Windows service is active...")
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Logf("Windows service check failed, but bootstrap.ps1 succeeded: %v", r)
+					}
+				}()
+				utils.WaitForWindowsService(t, serviceName, 30*time.Second)
+			}()
+		}
+
+		// Give some time for the check, but continue regardless
 		time.Sleep(15 * time.Second)
 		t.Logf("Continuing with test - bootstrap.ps1 should have completed")
 	})
@@ -162,7 +183,7 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 		// Verify that topology was successfully updated
 		// This would check that the remote agent successfully called
 		// the /targets/updatetopology endpoint
-		utils.VerifyTargetTopologyUpdateWindows(t, targetName, namespace, "Windows HTTP bootstrap")
+		utils.VerifyTargetTopologyUpdateWindows(t, targetName, namespace, "Windows HTTP schedule")
 	})
 
 	// Step 7: Test Data Interaction
@@ -170,21 +191,38 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 		// Test actual data interaction between server and agent
 		// This would involve creating an Instance that uses the Target
 		// and verifying the end-to-end workflow
-		serviceName := fmt.Sprintf("Symphony-RemoteAgent-%s", targetName)
-		t.Logf("Attempting to verify Windows service is active after instance create...")
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("Windows service check failed, but bootstrap.ps1 succeeded: %v", r)
-				}
-			}()
-			utils.WaitForWindowsService(t, serviceName, 15*time.Second)
-		}()
 
-		// Give some time for the service check, but continue regardless
+		// Check service or scheduled task status based on run mode (same as Step 4)
+		if config.RunMode == "schedule" {
+			// For schedule mode, check scheduled task instead of service
+			taskName := "RemoteAgentTask"
+			t.Logf("Attempting to verify Windows scheduled task is active after instance create...")
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Logf("Windows scheduled task check failed, but bootstrap.ps1 succeeded: %v", r)
+					}
+				}()
+				utils.WaitForWindowsScheduledTask(t, taskName, 15*time.Second)
+			}()
+		} else {
+			// For service mode, use original service checking logic
+			serviceName := fmt.Sprintf("Symphony-RemoteAgent-%s", targetName)
+			t.Logf("Attempting to verify Windows service is active after instance create...")
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Logf("Windows service check failed, but bootstrap.ps1 succeeded: %v", r)
+					}
+				}()
+				utils.WaitForWindowsService(t, serviceName, 15*time.Second)
+			}()
+		}
+
+		// Give some time for the check, but continue regardless
 		time.Sleep(5 * time.Second)
 		t.Logf("Continuing with test - bootstrap.ps1 completed successfully")
-		testWindowsBootstrapDataInteraction(t, targetName, namespace, testDir)
+		testWindowsscheduleDataInteraction(t, targetName, namespace, testDir)
 	})
 
 	// Cleanup
@@ -212,14 +250,14 @@ func TestE2EHttpCommunicationWithBootstrap(t *testing.T) {
 		}
 	})
 
-	t.Logf("Windows HTTP communication test with bootstrap.ps1 completed successfully")
+	t.Logf("Windows HTTP communication test with schedule.ps1 completed successfully")
 }
 
-// testWindowsBootstrapDataInteraction tests the complete data interaction workflow for Windows
-func testWindowsBootstrapDataInteraction(t *testing.T, targetName, namespace, testDir string) {
+// testWindowsscheduleDataInteraction tests the complete data interaction workflow for Windows
+func testWindowsscheduleDataInteraction(t *testing.T, targetName, namespace, testDir string) {
 	// Step 1: Create a simple Solution first
-	solutionName := "test-bootstrap-solution-windows"
-	solutionVersion := "test-bootstrap-solution-windows-v-version1"
+	solutionName := "test-schedule-solution-windows"
+	solutionVersion := "test-schedule-solution-windows-v-version1"
 	solutionYaml := fmt.Sprintf(`
 apiVersion: solution.symphony/v1
 kind: SolutionContainer
@@ -240,7 +278,7 @@ spec:
     type: script
     properties:
       script: |
-        echo "Windows Bootstrap test component deployed successfully"
+        echo "Windows schedule test component deployed successfully"
         echo "Target: %s"
         echo "Namespace: %s"
         echo "Platform: Windows"
@@ -257,7 +295,7 @@ spec:
 	require.NoError(t, err)
 
 	// Step 2: Create an Instance that references the Solution and Target
-	instanceName := "test-bootstrap-instance-windows"
+	instanceName := "test-schedule-instance-windows"
 	instanceYaml := fmt.Sprintf(`
 apiVersion: solution.symphony/v1
 kind: Instance
@@ -330,11 +368,11 @@ spec:
 	// 3. The agent successfully executed the deployment
 	// 4. Status was reported back to Symphony
 
-	t.Logf("Windows bootstrap data interaction test completed - Solution and Instance created successfully")
+	t.Logf("Windows schedule data interaction test completed - Solution and Instance created successfully")
 }
 
-// WindowsHTTPBootstrapTestSuite provides additional component-level tests for Windows HTTP bootstrap
-type WindowsHTTPBootstrapTestSuite struct {
+// WindowsHTTPscheduleTestSuite provides additional component-level tests for Windows HTTP schedule
+type WindowsHTTPscheduleTestSuite struct {
 	testDir     string
 	projectRoot string
 	symphonyURL string
@@ -342,13 +380,13 @@ type WindowsHTTPBootstrapTestSuite struct {
 	serviceName string
 }
 
-// TestWindowsHTTPBootstrapComponentTests runs individual component tests
-func TestWindowsHTTPBootstrapComponentTests(t *testing.T) {
-	suite := &WindowsHTTPBootstrapTestSuite{}
+// TestWindowsHTTPscheduleComponentTests runs individual component tests
+func TestWindowsHTTPscheduleComponentTests(t *testing.T) {
+	suite := &WindowsHTTPscheduleTestSuite{}
 	suite.SetupSuite(t)
 	defer suite.TearDownSuite(t)
 
-	t.Run("TestWindowsHTTPBootstrapService", suite.TestWindowsHTTPBootstrapService)
+	t.Run("TestWindowsHTTPscheduleService", suite.TestWindowsHTTPscheduleService)
 	t.Run("TestWindowsHTTPCertificateHandling", suite.TestWindowsHTTPCertificateHandling)
 	t.Run("TestWindowsHTTPConfigGeneration", suite.TestWindowsHTTPConfigGeneration)
 	t.Run("TestWindowsHTTPNetworking", suite.TestWindowsHTTPNetworking)
@@ -356,7 +394,7 @@ func TestWindowsHTTPBootstrapComponentTests(t *testing.T) {
 	t.Run("TestWindowsEnvironmentCheck", suite.TestWindowsEnvironmentCheck)
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) SetupSuite(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) SetupSuite(t *testing.T) {
 	// Get project root
 	suite.projectRoot = utils.GetWindowsProjectRoot(t)
 
@@ -390,14 +428,14 @@ func (suite *WindowsHTTPBootstrapTestSuite) SetupSuite(t *testing.T) {
 
 	suite.serviceName = fmt.Sprintf("Symphony-RemoteAgent-%s", suite.testConfig.TargetName)
 
-	t.Logf("Windows HTTP Bootstrap Component Test Suite setup complete")
+	t.Logf("Windows HTTP schedule Component Test Suite setup complete")
 	t.Logf("  Project Root: %s", suite.projectRoot)
 	t.Logf("  Test Directory: %s", suite.testDir)
 	t.Logf("  Symphony URL: %s", suite.symphonyURL)
 	t.Logf("  Service Name: %s", suite.serviceName)
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TearDownSuite(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TearDownSuite(t *testing.T) {
 	// Clean up Windows service
 	utils.CleanupWindowsService(t, suite.serviceName)
 
@@ -406,25 +444,25 @@ func (suite *WindowsHTTPBootstrapTestSuite) TearDownSuite(t *testing.T) {
 		t.Logf("Test directory cleanup: %s", suite.testDir)
 	}
 
-	t.Logf("Windows HTTP Bootstrap Component Test Suite cleanup complete")
+	t.Logf("Windows HTTP schedule Component Test Suite cleanup complete")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPBootstrapService(t *testing.T) {
-	// Test Windows Service mode bootstrap
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsHTTPscheduleService(t *testing.T) {
+	// Test Windows Service mode schedule
 	suite.testConfig.RunMode = "service"
 
-	// For testing purposes, just verify the bootstrap script path exists
-	bootstrapPath := filepath.Join(suite.projectRoot, "remote-agent", "bootstrap", "bootstrap.ps1")
-	if !utils.FileExistsWindows(bootstrapPath) {
-		t.Logf("Warning: bootstrap.ps1 not found at %s, skipping service test", bootstrapPath)
+	// For testing purposes, just verify the schedule script path exists
+	schedulePath := filepath.Join(suite.projectRoot, "remote-agent", "schedule", "schedule.ps1")
+	if !utils.FileExistsWindows(schedulePath) {
+		t.Logf("Warning: schedule.ps1 not found at %s, skipping service test", schedulePath)
 		return
 	}
 
-	t.Logf("Bootstrap script found at: %s", bootstrapPath)
-	t.Logf("Windows HTTP Bootstrap Service test completed successfully")
+	t.Logf("schedule script found at: %s", schedulePath)
+	t.Logf("Windows HTTP schedule Service test completed successfully")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPCertificateHandling(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsHTTPCertificateHandling(t *testing.T) {
 	// Test that Windows certificate handling works correctly
 	require.True(t, utils.FileExistsWindows(suite.testConfig.ClientCertPath),
 		"Client certificate should exist: %s", suite.testConfig.ClientCertPath)
@@ -441,7 +479,7 @@ func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPCertificateHandling(t
 	t.Logf("Windows HTTP Certificate handling test completed successfully")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPConfigGeneration(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsHTTPConfigGeneration(t *testing.T) {
 	// Test that Windows HTTP configuration is generated correctly
 	require.True(t, utils.FileExistsWindows(suite.testConfig.ConfigPath),
 		"HTTP config file should exist: %s", suite.testConfig.ConfigPath)
@@ -457,7 +495,7 @@ func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPConfigGeneration(t *t
 	t.Logf("Windows HTTP Config generation test completed successfully")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPNetworking(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsHTTPNetworking(t *testing.T) {
 	// Test Windows networking capabilities
 	hostIP := utils.GetWindowsHostIP(t)
 	require.NotEmpty(t, hostIP, "Should be able to get Windows host IP")
@@ -470,7 +508,7 @@ func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsHTTPNetworking(t *testing
 	t.Logf("Windows HTTP Networking test completed successfully")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsPowerShellExecution(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsPowerShellExecution(t *testing.T) {
 	// Test PowerShell script execution capabilities
 	scriptContent := `Write-Output "PowerShell test successful"`
 	scriptPath := filepath.Join(suite.testDir, "test_script.ps1")
@@ -492,7 +530,7 @@ func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsPowerShellExecution(t *te
 	t.Logf("Windows PowerShell execution test completed successfully")
 }
 
-func (suite *WindowsHTTPBootstrapTestSuite) TestWindowsEnvironmentCheck(t *testing.T) {
+func (suite *WindowsHTTPscheduleTestSuite) TestWindowsEnvironmentCheck(t *testing.T) {
 	// Test Windows environment detection
 	if !utils.IsRunningOnWindows() {
 		t.Skip("Skipping Windows-specific test on non-Windows platform")
