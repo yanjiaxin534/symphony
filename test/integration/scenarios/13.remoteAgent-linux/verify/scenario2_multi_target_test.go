@@ -343,7 +343,7 @@ func testMultiTargetParallelOperations(t *testing.T, config *utils.TestConfig) {
 
 func createTargetParallel(t *testing.T, config *utils.TestConfig, targetName string, index int) error {
 	// Use the standard CreateTargetYAML function from utils
-	targetPath := utils.CreateTargetYAML(t, testDir, targetName, config.Namespace)
+	targetPath := utils.CreateTargetYAML(t, testDir, fmt.Sprintf("%s-%d", targetName, index), config.Namespace)
 	return utils.ApplyKubernetesManifest(t, targetPath)
 }
 
